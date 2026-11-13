@@ -89,11 +89,17 @@
     #history-list small { display: block; margin-top: 4px; font-weight: 400; color: var(--muted); }
     #history-list { max-height: 245px; overflow: auto; }
     h3 { margin: 20px 0 10px; }
-    #recording { width: 100%; }
+    .recording-player { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; }
+    .recording-player button { width: auto; }
+    #seek-recording { width: 100%; min-width: 0; }
+    #recording-time { grid-column: 2; font-size: .8rem; font-variant-numeric: tabular-nums; color: var(--muted); }
     #practice-again { background: var(--green); }
     #turns { max-height: 345px; overflow: auto; overflow-wrap: anywhere; }
-    #turns li { background: #fbf6ee; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
-    #turns p { margin: 4px 0 0; }
+    #turns button { text-align: left; background: #fbf6ee; color: var(--ink); border: 1px solid var(--line); font-weight: 400; }
+    #turns button:hover { border-color: #a35c70; }
+    #turns button span { display: block; margin-top: 4px; }
+    #feedback-result dt { font-weight: 750; }
+    #feedback-result dd { margin: 4px 0 14px; line-height: 1.5; overflow-wrap: anywhere; }
     @media (max-width: 730px) { .dashboard { grid-template-columns: minmax(0, 1fr); } .hero { min-height: 240px; } .type-study { min-height: 142px; } }
     @media (max-width: 480px) {
       .hero { grid-template-columns: 1fr; min-height: 0; }
@@ -168,13 +174,26 @@
       <ul id="history-list"></ul>
       <section id="log" hidden aria-labelledby="log-title">
         <h3 id="log-title">Saved conversation</h3>
-        <audio id="recording" controls preload="metadata"></audio>
+        <div class="recording-player">
+          <button id="play-recording" type="button">Play</button>
+          <input id="seek-recording" type="range" min="0" max="0" step="any" value="0" aria-label="Seek in recording">
+          <span id="recording-time">0:00 / 0:00</span>
+        </div>
+        <p id="playback-status" class="privacy" role="status"></p>
         <p><a id="download" download>Download audio</a></p>
         <button id="practice-again">Continue this conversation</button>
         <p class="privacy">Continuing sends recent transcript turns to Alex for context.</p>
         <h3>Transcript</h3>
+        <p class="privacy">Select a turn to play that excerpt. Older calls use approximate timestamps.</p>
         <p id="no-turns" hidden>No completed transcript turns were received for this call.</p>
         <ol id="turns"></ol>
+        <section id="feedback" hidden aria-labelledby="feedback-title">
+          <h3 id="feedback-title">IELTS feedback</h3>
+          <p class="privacy">Gemini reviews the transcript for answer development, vocabulary and grammar. Pronunciation needs an audio review.</p>
+          <p id="feedback-status" role="status"></p>
+          <button id="generate-feedback" type="button">Generate feedback</button>
+          <dl id="feedback-result"></dl>
+        </section>
       </section>
     </section>
     </div>

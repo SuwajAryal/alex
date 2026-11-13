@@ -43,13 +43,15 @@ export async function saveLog(form) {
   const turns = metadata.turns.slice(0, 3000).flatMap(turn => {
     if (!turn || !['you', 'alex'].includes(turn.speaker) || typeof turn.text !== 'string' ||
         !Number.isFinite(turn.at) || turn.at < 0) return [];
-    return [{ speaker: turn.speaker, text: turn.text.trim().slice(0, 4000), at: turn.at }];
+    const at = Math.min(turn.at, metadata.duration);
+    const end = Number.isFinite(turn.end) ? Math.min(turn.end, metadata.duration) : null;
+    return [{ speaker: turn.speaker, text: turn.text.trim().slice(0, 4000), at, ...(end > at ? { end } : {}) }];
   }).filter(turn => turn.text).sort((a, b) => a.at - b.at);
   const id = randomUUID();
   const filename = 'audio.' + extension;
   const log = {
     id, mode: metadata.mode, startedAt: new Date(metadata.startedAt).toISOString(),
-    duration: Math.round(metadata.duration), turns, filename, type, bytes: audio.size,
+    duration: metadata.duration, turns, filename, type, bytes: audio.size,
   };
   await mkdir(root, { recursive: true });
   const pending = join(root, '.' + id);
@@ -63,6 +65,27 @@ export async function saveLog(form) {
     throw error;
   }
   return log;
+}
+
+export async function getFeedback(id) {
+  if (!idPattern.test(id)) return null;
+  try {
+    return JSON.parse(await readFile(join(root, id, 'feedback.json'), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+export async function saveFeedback(id, feedback) {
+  const folder = join(root, id);
+  const pending = join(folder, '.feedback-' + randomUUID());
+  try {
+    await writeFile(pending, JSON.stringify(feedback, null, 2));
+    await rename(pending, join(folder, 'feedback.json'));
+  } finally {
+    await rm(pending, { force: true });
+  }
 }
 
 export async function playLog(req, res, log) {

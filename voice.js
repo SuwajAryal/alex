@@ -71,20 +71,30 @@ function startRecording(call) {
   recorder.start(1000);
   call.recorder = recorder;
   call.startedAt = Date.now();
+  call.audioOrigin = call.context.currentTime;
   startClock(call);
+}
+
+function recordingTime(call) {
+  return Math.max(0, call.context.currentTime - call.audioOrigin);
 }
 
 function noteTurn(call, speaker, transcription) {
   if (!call.startedAt || !transcription) return;
   let turn = call.currentTurns[speaker];
   if (!turn && transcription.text) {
-    const now = Math.min(Date.now(), call.endedAt ?? Infinity);
-    turn = { speaker, text: '', at: (now - call.startedAt) / 1000 };
+    const timing = speaker === 'you' ? call.inputTiming : call.outputTiming;
+    turn = timing ?? { at: call.recordedDuration ?? recordingTime(call) };
+    turn.speaker = speaker;
+    turn.text = '';
     call.turns.push(turn);
     call.currentTurns[speaker] = turn;
   }
   if (turn && transcription.text) turn.text += transcription.text;
-  if (transcription.finished) delete call.currentTurns[speaker];
+  if (transcription.finished) {
+    delete call.currentTurns[speaker];
+    if (speaker === 'you') call.inputTiming = undefined;
+  }
 }
 
 function stopPlayback(call) {
@@ -114,6 +124,9 @@ function playAudio(call, part) {
   source.start(at);
   call.playing.add(source);
   call.playbackEnd = at + buffer.duration;
+  call.outputTiming ??= call.currentTurns.alex ?? { at: 0 };
+  if (!call.outputTiming.end) call.outputTiming.at = Math.max(0, at - call.audioOrigin);
+  call.outputTiming.end = call.playbackEnd - call.audioOrigin;
   panel.setAttribute('data-speaking', '');
   status.textContent = 'Alex is speaking…';
   clearTimeout(call.playbackTimer);
@@ -169,12 +182,19 @@ function connectLive(call, resume) {
       }
       const content = message.serverContent;
       if (!content) return;
+      if (!call.ending) {
+        if (content.interrupted) {
+          if (call.outputTiming) call.outputTiming.end = Math.min(call.outputTiming.end, recordingTime(call));
+          stopPlayback(call);
+        }
+        for (const part of content.modelTurn?.parts ?? []) playAudio(call, part);
+      }
       noteTurn(call, 'you', content.inputTranscription);
       noteTurn(call, 'alex', content.outputTranscription);
-      if (content.turnComplete) call.currentTurns = {};
-      if (call.ending) return;
-      if (content.interrupted) stopPlayback(call);
-      for (const part of content.modelTurn?.parts ?? []) playAudio(call, part);
+      if (content.turnComplete) {
+        call.currentTurns = {};
+        call.inputTiming = call.outputTiming = undefined;
+      }
     } catch (error) {
       finish(call, error.message || 'Could not process the voice stream.');
     }
@@ -206,7 +226,7 @@ async function savePending() {
     const log = await result.json();
     pendingSave = undefined;
     status.textContent = [pendingNotice, 'Call saved to practice history.'].filter(Boolean).join(' ');
-    await refreshHistory(log.id);
+    await refreshHistory(log.id, log.mode === 'mock' && configured.gemini);
   } catch {
     status.textContent = 'Could not save this call. Keep this page open and retry.';
     retry.hidden = false;
@@ -219,6 +239,7 @@ async function finish(call, message, allowTranscript = false) {
   if (!call || activeCall !== call || call.ending) return;
   call.ending = true;
   const endedAt = call.endedAt = Date.now();
+  if (call.recorder) call.recordedDuration = recordingTime(call);
   clearTimeout(call.timer);
   clearInterval(call.clockTimer);
   clock.hidden = true;
@@ -259,7 +280,7 @@ async function finish(call, message, allowTranscript = false) {
     pendingSave.set('metadata', JSON.stringify({
       mode: call.mode,
       startedAt: new Date(call.startedAt).toISOString(),
-      duration: (endedAt - call.startedAt) / 1000,
+      duration: call.recordedDuration ?? (endedAt - call.startedAt) / 1000,
       turns: call.turns,
     }));
     await savePending();
@@ -290,10 +311,34 @@ async function connectOpenAI(call, path) {
     if (peer.connectionState === 'failed') finish(call, 'OpenAI disconnected.');
   });
   const items = new Map();
+  const outputTimes = new Map();
   channel.addEventListener('message', ({ data }) => {
     if (activeCall !== call) return;
     try {
       const event = JSON.parse(data);
+      const at = call.startedAt ? call.recordedDuration ?? recordingTime(call) : 0;
+      if (event.type === 'output_audio_buffer.started') {
+        const timing = outputTimes.get(event.response_id) ?? {};
+        timing.at = at;
+        for (const turn of timing.turns ?? []) turn.at = at;
+        outputTimes.set(event.response_id, timing);
+      }
+      if (['output_audio_buffer.stopped', 'output_audio_buffer.cleared'].includes(event.type)) {
+        const timing = outputTimes.get(event.response_id);
+        if (timing) {
+          timing.end = at;
+          for (const turn of timing.turns ?? []) turn.end = at;
+        }
+      }
+      if (event.type === 'input_audio_buffer.speech_stopped') {
+        const turn = items.get('you:' + event.item_id);
+        if (turn) {
+          turn.end = at;
+          if (Number.isFinite(event.audio_end_ms) && Number.isFinite(turn.audioStart)) {
+            turn.at = Math.max(0, at - (event.audio_end_ms - turn.audioStart) / 1000);
+          }
+        }
+      }
       const speaker = event.type === 'conversation.item.input_audio_transcription.completed' ? 'you' : 'alex';
       const final = ['conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.done'].includes(event.type);
       if (call.startedAt && (final || ['input_audio_buffer.speech_started', 'response.output_audio_transcript.delta'].includes(event.type))) {
@@ -301,8 +346,13 @@ async function connectOpenAI(call, path) {
           ? 'you:' + event.item_id : 'alex:' + event.item_id + ':' + event.content_index;
         let turn = items.get(key);
         if (!turn) {
-          const now = Math.min(Date.now(), call.endedAt ?? Infinity);
-          turn = { speaker: key.startsWith('you:') ? 'you' : 'alex', at: (now - call.startedAt) / 1000, text: '' };
+          const timing = key.startsWith('alex:') ? outputTimes.get(event.response_id) ?? { turns: [] } : null;
+          turn = { speaker: timing ? 'alex' : 'you', at: timing?.at ?? at, end: timing?.end, text: '' };
+          if (event.type === 'input_audio_buffer.speech_started') turn.audioStart = event.audio_start_ms;
+          if (timing) {
+            (timing.turns ??= []).push(turn);
+            outputTimes.set(event.response_id, timing);
+          }
           items.set(key, turn);
           call.turns.push(turn);
         }
@@ -399,6 +449,18 @@ async function startCall(previousId) {
     call.input.connect(capture);
     capture.port.onmessage = ({ data }) => {
       if (!call.ready || call.ending || call.socket?.bufferedAmount > 128000) return;
+      if (call.recorder) {
+        const samples = new Int16Array(data);
+        let energy = 0;
+        for (const sample of samples) energy += sample * sample;
+        if (Math.sqrt(energy / samples.length) > 450) {
+          const end = recordingTime(call);
+          if (!call.inputTiming) {
+            call.inputTiming = call.currentTurns.you ?? { at: Math.max(0, end - samples.length / 16000) };
+          }
+          call.inputTiming.end = end;
+        }
+      }
       const encoded = btoa(String.fromCharCode(...new Uint8Array(data)));
       sendLive(call, { realtimeInput: { audio: { data: encoded, mimeType: 'audio/pcm;rate=16000' } } });
     };

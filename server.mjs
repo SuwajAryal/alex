@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { getLog, historyLimit, listLogs, playLog, saveLog } from './history.mjs';
+import { getFeedback, getLog, historyLimit, listLogs, playLog, saveFeedback, saveLog } from './history.mjs';
+import { generateFeedback } from './feedback.mjs';
 
 const port = 8766;
 const origin = `http://127.0.0.1:${port}`;
@@ -10,6 +11,8 @@ const page = await readFile(new URL('./index.html', import.meta.url));
 const script = await readFile(new URL('./voice.js', import.meta.url));
 const historyScript = await readFile(new URL('./history.js', import.meta.url));
 const micScript = await readFile(new URL('./mic.js', import.meta.url));
+const playbackScript = await readFile(new URL('./playback.js', import.meta.url));
+const pendingFeedback = new Map();
 const model = 'models/gemini-3.8-live';
 const keys = { gemini: process.env.GEMINI_API_KEY?.trim(), openai: process.env.OPENAI_API_KEY?.trim() };
 const common = `You are Alex, a friendly English-speaking practice partner. The learner's IELTS exam is November 23. Speak clearly in natural English. Keep replies short, ask one question at a time, and give the learner space to speak. Start immediately with your first spoken question.`;
@@ -43,6 +46,7 @@ async function route(req, res) {
   if (req.method === 'GET' && req.url === '/voice.js') return send(res, 200, script, 'text/javascript; charset=utf-8');
   if (req.method === 'GET' && req.url === '/history.js') return send(res, 200, historyScript, 'text/javascript; charset=utf-8');
   if (req.method === 'GET' && req.url === '/mic.js') return send(res, 200, micScript, 'text/javascript; charset=utf-8');
+  if (req.method === 'GET' && req.url === '/playback.js') return send(res, 200, playbackScript, 'text/javascript; charset=utf-8');
   if (req.method === 'GET' && req.url === '/status') {
     return send(res, 200, JSON.stringify({ app: 'alex', configured: { gemini: Boolean(keys.gemini), openai: Boolean(keys.openai) } }), 'application/json');
   }
@@ -75,6 +79,29 @@ async function route(req, res) {
     if (!log) return send(res, 404, 'Conversation not found.');
     if (historyMatch[2]) return playLog(req, res, log);
     return send(res, 200, JSON.stringify(log), 'application/json');
+  }
+  const reviewMatch = /^\/history\/([a-f0-9-]+)\/feedback$/.exec(req.url);
+  if (reviewMatch && ['GET', 'POST'].includes(req.method)) {
+    const id = reviewMatch[1];
+    const log = await getLog(id);
+    if (log?.mode !== 'mock') return send(res, 404, 'IELTS mock not found.');
+    const cached = await getFeedback(id);
+    if (cached || req.method === 'GET') return send(res, 200, JSON.stringify(cached), 'application/json');
+    if (!keys.gemini) return send(res, 409, 'Load a Gemini API key in Voice setup to generate feedback.');
+    if (!log.turns.some(turn => turn.speaker === 'you')) return send(res, 422, 'This mock has no learner transcript to review.');
+    if (!pendingFeedback.has(id)) {
+      const request = generateFeedback(log, keys.gemini).then(async feedback => {
+        await saveFeedback(id, feedback);
+        return feedback;
+      }).finally(() => pendingFeedback.delete(id));
+      pendingFeedback.set(id, request);
+    }
+    try {
+      const feedback = await pendingFeedback.get(id);
+      return send(res, 200, JSON.stringify(feedback), 'application/json');
+    } catch (error) {
+      return send(res, error.status ?? 502, error.status ? error.message : 'Could not generate feedback. Try again.');
+    }
   }
 
   const url = new URL(req.url, origin);
