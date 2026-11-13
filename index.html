@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alex · English speaking practice</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color: #142d28; background: #f5f4eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    main { width: min(100%, 1030px); display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(24px, 5vw, 52px); padding: clamp(20px, 5vw, 48px); background: #fffefa; border: 1px solid #dcded2; border-radius: 28px; box-shadow: 0 16px 60px #12302612; }
+    @media (max-width: 750px) { main { grid-template-columns: minmax(0, 1fr); } }
+    .mark { width: 72px; height: 72px; border-radius: 50%; background: #d8edca; display: flex; align-items: center; justify-content: center; gap: 4px; }
+    .mark span { width: 4px; height: var(--height); background: #184334; border-radius: 4px; }
+    main[data-speaking] .mark span { animation: pulse .7s ease-in-out infinite alternate; }
+    @keyframes pulse { to { transform: scaleY(.4); } }
+    @media (prefers-reduced-motion: reduce) { main[data-speaking] .mark span { animation: none; } }
+    h1 { font-size: clamp(36px, 9vw, 52px); letter-spacing: -.06em; line-height: 1; margin: 22px 0 12px; }
+    p { line-height: 1.5; }
+    .description { margin: 0 0 25px; color: #435b53; }
+    fieldset { border: 0; padding: 0; margin: 0 0 20px; }
+    legend { padding: 0; margin-bottom: 8px; font-size: .9rem; font-weight: 700; }
+    .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    label { border: 1px solid #c8d0c5; border-radius: 12px; padding: 12px; font-size: .9rem; cursor: pointer; }
+    label:has(:checked) { background: #e9f3e3; border-color: #478360; }
+    input { margin: 0 4px 0 0; accent-color: #214f3c; }
+    button, .fallback { font: inherit; font-weight: 700; width: 100%; padding: 13px 16px; border-radius: 12px; cursor: pointer; }
+    button { border: 0; background: #214f3c; color: white; }
+    button:disabled { opacity: .55; cursor: default; }
+    #end { background: #862c3f; }
+    .fallback { display: block; text-align: center; background: #e9f3e3; color: #214f3c; }
+    [hidden] { display: none !important; }
+    #status { min-height: 3em; margin: 14px 0 0; font-size: .9rem; color: #435b53; }
+    #unmute { margin-top: 8px; background: #e9f3e3; color: #214f3c; }
+    .privacy { margin: 4px 0 0; font-size: .8rem; color: #4a5a53; }
+    a { color: #214f3c; }
+    summary { cursor: pointer; font-weight: 700; }
+    #setup { margin-top: 20px; }
+    #key { display: block; width: 100%; font: inherit; padding: 10px; margin: 8px 0; border: 1px solid #c8d0c5; border-radius: 8px; }
+    #key-form label { padding: 0; border: 0; cursor: default; }
+    .history { padding: 20px; border-radius: 18px; background: #eff2e9; align-self: start; }
+    h2 { margin: 0 0 8px; }
+    h3 { margin: 18px 0 10px; }
+    #history-list, #turns { list-style: none; padding: 0; margin: 0; }
+    #history-list li + li, #turns li + li { margin-top: 8px; }
+    #history-list button { background: #fffefa; color: #214f3c; text-align: left; border: 1px solid #d6ddd0; }
+    #history-list button[aria-pressed="true"] { border-color: #478360; background: #e2eedc; }
+    #history-list small { display: block; margin-top: 4px; font-weight: 400; }
+    #history-list { max-height: 245px; overflow: auto; }
+    #recording { width: 100%; }
+    #turns { max-height: 345px; overflow: auto; overflow-wrap: anywhere; }
+    #turns li { background: #fffefa; border-radius: 10px; padding: 10px; }
+    #turns p { margin: 4px 0 0; }
+    #retry-save { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section aria-labelledby="call-title">
+    <div class="mark" aria-hidden="true"><span style="--height:12px"></span><span style="--height:22px"></span><span style="--height:34px"></span><span style="--height:22px"></span><span style="--height:12px"></span></div>
+    <h1 id="call-title">Talk to Alex</h1>
+    <p class="description">Speak English with an AI practice partner and hear Alex reply out loud.</p>
+    <fieldset id="modes">
+      <legend>Practice mode</legend>
+      <div class="choices">
+        <label><input type="radio" name="mode" value="chat" checked> Casual chat</label>
+        <label><input type="radio" name="mode" value="mock"> IELTS mock</label>
+      </div>
+    </fieldset>
+    <button id="start" disabled>Start voice call</button>
+    <button id="end" hidden>End and save call</button>
+    <button id="retry-save" hidden>Retry saving recording</button>
+    <a class="fallback" id="fallback" href="https://chatgpt.com/" target="_blank" rel="noopener" hidden>Open ChatGPT Voice</a>
+    <audio id="audio" autoplay></audio>
+    <button id="unmute" hidden>Play Alex’s audio</button>
+    <p id="status" role="status">Checking voice setup…</p>
+    <p class="privacy">OpenAI processes call audio and transcription. End the call to save the recording and transcript on this computer.</p>
+    <details id="setup">
+      <summary>Voice setup</summary>
+      <p>Standalone calls need an OpenAI API key with API billing enabled. The launcher keeps the key in memory for this run.</p>
+      <form id="key-form" autocomplete="off">
+        <label for="key">OpenAI API key</label>
+        <input id="key" type="password" required spellcheck="false" placeholder="sk-…" autocomplete="off">
+        <button type="submit">Load key</button>
+      </form>
+      <p><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Open OpenAI API keys</a></p>
+    </details>
+    </section>
+    <section class="history" aria-labelledby="history-title">
+      <h2 id="history-title">Practice history</h2>
+      <p id="history-status" role="status">Loading saved calls…</p>
+      <ul id="history-list"></ul>
+      <section id="log" hidden aria-labelledby="log-title">
+        <h3 id="log-title">Saved conversation</h3>
+        <audio id="recording" controls preload="metadata"></audio>
+        <p><a id="download" download>Download audio</a></p>
+        <button id="practice-again">Continue this conversation</button>
+        <p class="privacy">Continuing sends recent transcript turns to Alex for context.</p>
+        <h3>Transcript</h3>
+        <p id="no-turns" hidden>No completed transcript turns were received for this call.</p>
+        <ol id="turns"></ol>
+      </section>
+    </section>
+  </main>
+  <script src="/voice.js" type="module"></script>
+</body>
+</html>
