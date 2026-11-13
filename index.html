@@ -31,7 +31,6 @@
     .fallback { display: block; text-align: center; background: #e9f3e3; color: #214f3c; }
     [hidden] { display: none !important; }
     #status { min-height: 3em; margin: 14px 0 0; font-size: .9rem; color: #435b53; }
-    #unmute { margin-top: 8px; background: #e9f3e3; color: #214f3c; }
     .privacy { margin: 4px 0 0; font-size: .8rem; color: #4a5a53; }
     a { color: #214f3c; }
     summary { cursor: pointer; font-weight: 700; }
@@ -71,19 +70,17 @@
     <button id="end" hidden>End and save call</button>
     <button id="retry-save" hidden>Retry saving recording</button>
     <a class="fallback" id="fallback" href="https://chatgpt.com/" target="_blank" rel="noopener" hidden>Open ChatGPT Voice</a>
-    <audio id="audio" autoplay></audio>
-    <button id="unmute" hidden>Play Alex’s audio</button>
     <p id="status" role="status">Checking voice setup…</p>
-    <p class="privacy">OpenAI processes call audio and transcription. End the call to save the recording and transcript on this computer.</p>
+    <p class="privacy">Gemini processes call audio and transcription. End the call to save the recording and transcript on this computer.</p>
     <details id="setup">
       <summary>Voice setup</summary>
-      <p>Standalone calls need an OpenAI API key with API billing enabled. The launcher keeps the key in memory for this run.</p>
+      <p>Use a Gemini API key from a Google AI Studio project marked <strong>Free Tier</strong>. Leave billing disabled to avoid charges. The key stays in memory for this run.</p>
       <form id="key-form" autocomplete="off">
-        <label for="key">OpenAI API key</label>
-        <input id="key" type="password" required spellcheck="false" placeholder="sk-…" autocomplete="off">
+        <label for="key">Gemini API key</label>
+        <input id="key" type="password" required spellcheck="false" autocomplete="off">
         <button type="submit">Load key</button>
       </form>
-      <p><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Open OpenAI API keys</a></p>
+      <p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a Gemini API key</a></p>
     </details>
     </section>
     <section class="history" aria-labelledby="history-title">
