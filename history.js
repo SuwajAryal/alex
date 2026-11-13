@@ -57,6 +57,8 @@ function show(log, autoFeedback) {
   download.download = 'alex-' + log.startedAt.slice(0, 10) + '-' + log.id.slice(0, 8) + '-' + log.filename;
   practiceAgain.dataset.mode = log.mode;
   practiceAgain.dataset.id = log.id;
+  practiceAgain.textContent = log.mode === 'mock' ? 'Start a new IELTS mock' : 'Continue this conversation';
+  document.querySelector('#resume-note').hidden = log.mode === 'mock';
   turns.replaceChildren(...log.turns.map((turn, index) => {
     const row = document.createElement('li');
     const name = document.createElement('strong');
@@ -137,6 +139,7 @@ practiceAgain.addEventListener('click', () => {
     return;
   }
   document.querySelector('input[name="mode"][value="' + practiceAgain.dataset.mode + '"]').checked = true;
+  document.querySelector('#modes').dispatchEvent(new Event('change'));
   player.pause();
   start.scrollIntoView({ block: 'center' });
   start.dispatchEvent(new CustomEvent('continue-call', { detail: practiceAgain.dataset.id }));

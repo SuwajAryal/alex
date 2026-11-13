@@ -1,4 +1,5 @@
 import { refreshHistory } from './history.js';
+import { createExam } from './exam.js';
 
 const panel = document.querySelector('main');
 const modes = document.querySelector('#modes');
@@ -14,6 +15,9 @@ const clock = document.querySelector('#call-clock');
 const reset = document.querySelector('#reset-clock');
 const audio = document.querySelector('#openai-audio');
 const playVoice = document.querySelector('#play-voice');
+const examPanel = document.querySelector('#exam-panel');
+const examStage = document.querySelector('#exam-stage');
+const cueCard = document.querySelector('#cue-card');
 let activeCall;
 let pendingSave;
 let pendingNotice = '';
@@ -26,6 +30,10 @@ function canStart() {
 }
 
 function updateClock(call) {
+  if (call.exam) {
+    call.exam.tick();
+    return;
+  }
   const elapsed = (Date.now() - call.clockStart) / 1000;
   if (call.limit && elapsed >= call.limit) {
     finish(call, 'Time limit reached.', true);
@@ -39,9 +47,34 @@ function updateClock(call) {
 function startClock(call) {
   call.clockStart = Date.now();
   clock.hidden = false;
-  reset.hidden = false;
+  reset.hidden = Boolean(call.exam);
   updateClock(call);
   call.clockTimer = setInterval(() => updateClock(call), 250);
+}
+
+function startExam(call, send) {
+  call.exam = createExam({
+    send,
+    finish: () => finish(call, 'IELTS mock complete.', true),
+    setMicrophone(enabled) {
+      for (const track of call.microphone.getAudioTracks()) track.enabled = enabled;
+    },
+    show(stage, seconds, card) {
+      if (examStage.textContent !== stage) examStage.textContent = stage;
+      clock.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' remaining';
+      if (card && cueCard.hidden) {
+        cueCard.querySelector('strong').textContent = card.title;
+        cueCard.querySelector('ul').replaceChildren(...card.points.map(point => {
+          const row = document.createElement('li');
+          row.textContent = point;
+          return row;
+        }));
+        cueCard.hidden = false;
+      }
+    },
+  });
+  examPanel.hidden = false;
+  call.exam.start();
 }
 
 reset.addEventListener('click', () => {
@@ -160,9 +193,24 @@ function connectLive(call, resume) {
         call.ready = true;
         call.resumeAttempts = 0;
         status.textContent = resume ? 'Reconnected. Keep speaking.' : 'Connected. Alex will say hello.';
+        if (call.pendingExamControl) {
+          sendLive(call, call.pendingExamControl);
+          call.pendingExamControl = undefined;
+        }
         if (!resume) {
           startRecording(call);
-          sendLive(call, { realtimeInput: { text: 'Start the voice practice now.' } });
+          if (call.mode === 'mock') {
+            startExam(call, text => {
+              clearTimeout(call.examAudioTimer);
+              stopPlayback(call);
+              const command = { clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true } };
+              if (call.ready && call.socket?.readyState === WebSocket.OPEN) sendLive(call, command);
+              else call.pendingExamControl = command;
+            });
+            reset.hidden = true;
+          } else {
+            sendLive(call, { realtimeInput: { text: 'Start the voice practice now.' } });
+          }
         }
       }
       const update = message.sessionResumptionUpdate;
@@ -187,10 +235,17 @@ function connectLive(call, resume) {
           if (call.outputTiming) call.outputTiming.end = Math.min(call.outputTiming.end, recordingTime(call));
           stopPlayback(call);
         }
-        for (const part of content.modelTurn?.parts ?? []) playAudio(call, part);
+        if (!call.exam?.suppressSpeech()) {
+          for (const part of content.modelTurn?.parts ?? []) playAudio(call, part);
+        }
       }
       noteTurn(call, 'you', content.inputTranscription);
-      noteTurn(call, 'alex', content.outputTranscription);
+      if (!call.exam?.suppressSpeech()) noteTurn(call, 'alex', content.outputTranscription);
+      if ((content.generationComplete || content.turnComplete) && call.exam && !call.ending &&
+          !content.interrupted && !call.exam.suppressSpeech() && call.playbackEnd > 0) {
+          clearTimeout(call.examAudioTimer);
+          call.examAudioTimer = setTimeout(() => call.exam.examinerFinished(), Math.max(0, call.playbackEnd - call.context.currentTime) * 1000);
+      }
       if (content.turnComplete) {
         call.currentTurns = {};
         call.inputTiming = call.outputTiming = undefined;
@@ -242,6 +297,8 @@ async function finish(call, message, allowTranscript = false) {
   if (call.recorder) call.recordedDuration = recordingTime(call);
   clearTimeout(call.timer);
   clearInterval(call.clockTimer);
+  clearTimeout(call.examAudioTimer);
+  examPanel.hidden = cueCard.hidden = true;
   clock.hidden = true;
   reset.hidden = true;
   call.abort.abort();
@@ -316,6 +373,7 @@ async function connectOpenAI(call, path) {
     if (activeCall !== call) return;
     try {
       const event = JSON.parse(data);
+      audio.muted = Boolean(call.exam?.suppressSpeech());
       const at = call.startedAt ? call.recordedDuration ?? recordingTime(call) : 0;
       if (event.type === 'output_audio_buffer.started') {
         const timing = outputTimes.get(event.response_id) ?? {};
@@ -364,19 +422,52 @@ async function connectOpenAI(call, path) {
           clearTimeout(call.timer);
           startRecording(call);
           status.textContent = 'Connected. Alex will say hello.';
-          channel.send(JSON.stringify({ type: 'response.create' }));
+          if (call.mode === 'mock') {
+            startExam(call, (text, stage) => {
+              audio.muted = false;
+              if (call.examResponse) channel.send(JSON.stringify({ type: 'response.cancel', response_id: call.examResponse }));
+              if (call.examOutput) channel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
+              channel.send(JSON.stringify({
+                type: 'session.update',
+                session: { type: 'realtime', audio: { input: {
+                  turn_detection: { type: 'semantic_vad', eagerness: 'low', create_response: !stage.wait && !stage.quietAfterPrompt, interrupt_response: !stage.wait },
+                } } },
+              }));
+              channel.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+              }));
+              channel.send(JSON.stringify({ type: 'response.create' }));
+            });
+            reset.hidden = true;
+          } else {
+            channel.send(JSON.stringify({ type: 'response.create' }));
+          }
+          break;
+        case 'response.created':
+          call.examResponse = event.response?.id;
           break;
         case 'output_audio_buffer.started':
+          call.examOutput = event.response_id;
           panel.setAttribute('data-speaking', '');
           status.textContent = 'Alex is speaking…';
           break;
         case 'output_audio_buffer.stopped':
+          if (call.examOutput === event.response_id) {
+            call.examOutput = undefined;
+            call.exam?.examinerFinished();
+          }
+          panel.removeAttribute('data-speaking');
+          status.textContent = 'Alex is listening.';
+          break;
         case 'output_audio_buffer.cleared':
+          if (call.examOutput === event.response_id) call.examOutput = undefined;
         case 'input_audio_buffer.speech_started':
           panel.removeAttribute('data-speaking');
           status.textContent = 'Alex is listening.';
           break;
         case 'response.done':
+          if (call.examResponse === event.response?.id) call.examResponse = undefined;
           if (event.response?.status === 'failed') finish(call, 'OpenAI could not reply. Check your API credits and usage limits.');
           break;
         case 'error':
@@ -412,7 +503,7 @@ playVoice.addEventListener('click', async () => {
 async function startCall(previousId) {
   if (activeCall || start.disabled) return;
   const mode = modes.querySelector(':checked').value;
-  const call = { mode, limit: Number(limit.value) * 60, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
+  const call = { mode, limit: mode === 'mock' ? 0 : Number(limit.value) * 60, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
   const selectedProvider = provider.value;
   activeCall = call;
   start.hidden = true;
@@ -437,7 +528,7 @@ async function startCall(previousId) {
     status.textContent = 'Connecting to Alex…';
     call.input = call.context.createMediaStreamSource(microphone);
     call.output = call.context.createGain();
-    const path = '/call/' + selectedProvider + '/' + mode + (previousId ? '?continue=' + encodeURIComponent(previousId) : '');
+    const path = '/call/' + selectedProvider + '/' + mode + (previousId && mode === 'chat' ? '?continue=' + encodeURIComponent(previousId) : '');
     if (selectedProvider === 'openai') {
       await connectOpenAI(call, path);
       return;
@@ -448,7 +539,8 @@ async function startCall(previousId) {
     const capture = new AudioWorkletNode(call.context, 'microphone-capture', { numberOfOutputs: 0 });
     call.input.connect(capture);
     capture.port.onmessage = ({ data }) => {
-      if (!call.ready || call.ending || call.socket?.bufferedAmount > 128000) return;
+      if (!call.ready || call.ending || call.socket?.bufferedAmount > 128000 ||
+          !microphone.getAudioTracks()[0].enabled) return;
       if (call.recorder) {
         const samples = new Int16Array(data);
         let energy = 0;
@@ -487,6 +579,9 @@ async function startCall(previousId) {
 
 start.addEventListener('click', () => startCall());
 start.addEventListener('continue-call', event => startCall(event.detail));
+modes.addEventListener('change', () => {
+  limit.closest('label').hidden = modes.querySelector(':checked').value === 'mock';
+});
 
 end.addEventListener('click', () => finish(activeCall, 'Call ended.', true));
 retry.addEventListener('click', savePending);

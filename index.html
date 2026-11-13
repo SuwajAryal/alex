@@ -71,6 +71,10 @@
     .fallback { display: block; text-align: center; margin-top: 8px; }
     [hidden] { display: none !important; }
     #call-clock { font-variant-numeric: tabular-nums; font-size: 1.2rem; font-weight: 750; }
+    #exam-panel { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbf6ee; }
+    #exam-stage { margin: 0; font-weight: 750; }
+    #cue-card { margin-top: 10px; }
+    #cue-card ul { margin: 5px 0 0; padding-left: 21px; }
     #status { margin: 13px 0; padding-left: 11px; border-left: 3px solid #c19664; color: var(--muted); font-size: .87rem; }
     .privacy, #setup p, #history-status { color: var(--muted); font-size: .85rem; }
     .privacy { margin: 8px 0 0; }
@@ -133,8 +137,8 @@
     <fieldset id="modes">
       <legend>Practice mode</legend>
       <div class="choices">
-        <label><input type="radio" name="mode" value="chat" checked> Casual chat <small>Everyday conversation</small></label>
-        <label><input type="radio" name="mode" value="mock"> IELTS mock <small>All three Speaking parts</small></label>
+        <label><input type="radio" name="mode" value="chat" checked> Casual chat <small>Conversation, corrections and useful phrases</small></label>
+        <label><input type="radio" name="mode" value="mock"> IELTS mock <small>Timed examiner interview, about 12–13 minutes</small></label>
       </div>
     </fieldset>
     <fieldset id="call-options" class="call-options">
@@ -147,6 +151,10 @@
       </label>
     </fieldset>
     <button id="start" disabled>Start voice call</button>
+    <section id="exam-panel" aria-label="IELTS test progress" hidden>
+      <p id="exam-stage" role="status"></p>
+      <div id="cue-card" hidden><strong></strong><ul></ul></div>
+    </section>
     <p id="call-clock" hidden></p>
     <button id="reset-clock" hidden>Reset timer</button>
     <button id="end" hidden>End and save call</button>
@@ -155,7 +163,7 @@
     <button id="retry-save" hidden>Retry saving recording</button>
     <a class="fallback" id="fallback" href="https://chatgpt.com/" target="_blank" rel="noopener" hidden>Open ChatGPT Voice</a>
     <p id="status" role="status">Checking voice setup…</p>
-    <p class="privacy">Your selected provider processes the audio and transcription. Call limits and timer resets apply only inside Alex. Provider quotas and billing still apply.</p>
+    <p class="privacy">Your selected provider processes audio and transcription. Casual chat uses your call limit. IELTS mock uses the exam timers. Provider quotas and billing still apply.</p>
     <details id="setup">
       <summary>Voice setup</summary>
       <p>Use a Gemini key from a <strong>Free Tier</strong> project with billing disabled for free calls. OpenAI Realtime Mini requires API billing. Keys stay in memory for this run.</p>
@@ -182,7 +190,7 @@
         <p id="playback-status" class="privacy" role="status"></p>
         <p><a id="download" download>Download audio</a></p>
         <button id="practice-again">Continue this conversation</button>
-        <p class="privacy">Continuing sends recent transcript turns to Alex for context.</p>
+        <p id="resume-note" class="privacy">Continuing sends recent transcript turns to Alex for context.</p>
         <h3>Transcript</h3>
         <p class="privacy">Select a turn to play that excerpt. Older calls use approximate timestamps.</p>
         <p id="no-turns" hidden>No completed transcript turns were received for this call.</p>
