@@ -7,10 +7,48 @@ const end = document.querySelector('#end');
 const status = document.querySelector('#status');
 const setup = document.querySelector('#setup');
 const retry = document.querySelector('#retry-save');
+const options = document.querySelector('#call-options');
+const provider = document.querySelector('#provider');
+const limit = document.querySelector('#limit');
+const clock = document.querySelector('#call-clock');
+const reset = document.querySelector('#reset-clock');
+const audio = document.querySelector('#openai-audio');
+const playVoice = document.querySelector('#play-voice');
 let activeCall;
 let pendingSave;
 let pendingNotice = '';
-let configured = false;
+let configured = {};
+
+function canStart() {
+  return configured[provider.value] && !pendingSave && navigator.mediaDevices?.getUserMedia &&
+    window.MediaRecorder && window.AudioContext &&
+    (provider.value === 'gemini' ? window.AudioWorkletNode : window.RTCPeerConnection);
+}
+
+function updateClock(call) {
+  const elapsed = (Date.now() - call.clockStart) / 1000;
+  if (call.limit && elapsed >= call.limit) {
+    finish(call, 'Time limit reached.', true);
+    return;
+  }
+  const seconds = call.limit ? Math.ceil(call.limit - elapsed) : Math.floor(elapsed);
+  const display = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+  clock.textContent = display + (call.limit ? ' remaining' : ' elapsed');
+}
+
+function startClock(call) {
+  call.clockStart = Date.now();
+  clock.hidden = false;
+  reset.hidden = false;
+  updateClock(call);
+  call.clockTimer = setInterval(() => updateClock(call), 250);
+}
+
+reset.addEventListener('click', () => {
+  if (!activeCall || activeCall.ending) return;
+  activeCall.clockStart = Date.now();
+  updateClock(activeCall);
+});
 
 function startRecording(call) {
   const destination = call.context.createMediaStreamDestination();
@@ -33,6 +71,7 @@ function startRecording(call) {
   recorder.start(1000);
   call.recorder = recorder;
   call.startedAt = Date.now();
+  startClock(call);
 }
 
 function noteTurn(call, speaker, transcription) {
@@ -172,7 +211,7 @@ async function savePending() {
     status.textContent = 'Could not save this call. Keep this page open and retry.';
     retry.hidden = false;
   } finally {
-    start.disabled = !configured || Boolean(pendingSave);
+    start.disabled = !canStart();
   }
 }
 
@@ -181,11 +220,15 @@ async function finish(call, message, allowTranscript = false) {
   call.ending = true;
   const endedAt = call.endedAt = Date.now();
   clearTimeout(call.timer);
+  clearInterval(call.clockTimer);
+  clock.hidden = true;
+  reset.hidden = true;
   call.abort.abort();
   if (call.recorder?.state === 'recording') call.recorder.stop();
   call.microphone?.getTracks().forEach(track => track.stop());
   clearTimeout(call.reconnectTimer);
   stopPlayback(call);
+  audio.pause();
   if (allowTranscript) sendLive(call, { realtimeInput: { audioStreamEnd: true } });
   if (allowTranscript && call.recorder) {
     end.disabled = true;
@@ -194,12 +237,17 @@ async function finish(call, message, allowTranscript = false) {
   }
   activeCall = undefined;
   call.socket?.close();
+  call.peer?.close();
+  audio.srcObject = null;
+  playVoice.hidden = true;
   if (call.context?.state !== 'closed') call.context?.close().catch(() => {});
   panel.removeAttribute('data-speaking');
   end.hidden = true;
   end.disabled = false;
   start.hidden = false;
   modes.disabled = false;
+  options.disabled = false;
+  start.disabled = !canStart();
   status.textContent = message;
   if (!call.recording) return;
   start.disabled = true;
@@ -217,22 +265,114 @@ async function finish(call, message, allowTranscript = false) {
     await savePending();
   } else {
     status.textContent = 'The browser could not save audio for this call.';
-    start.disabled = !configured;
+    start.disabled = !canStart();
   }
 }
+
+async function connectOpenAI(call, path) {
+  const peer = new RTCPeerConnection();
+  call.peer = peer;
+  peer.addTrack(call.microphone.getAudioTracks()[0], call.microphone);
+  peer.addEventListener('track', async event => {
+    if (activeCall !== call || call.ending) return;
+    const stream = event.streams[0] ?? new MediaStream([event.track]);
+    call.context.createMediaStreamSource(stream).connect(call.output);
+    audio.srcObject = stream;
+    try {
+      await audio.play();
+    } catch {
+      if (activeCall === call && !call.ending) playVoice.hidden = false;
+    }
+  });
+  const channel = peer.createDataChannel('oai-events');
+  channel.addEventListener('close', () => finish(call, 'OpenAI disconnected.'));
+  peer.addEventListener('connectionstatechange', () => {
+    if (peer.connectionState === 'failed') finish(call, 'OpenAI disconnected.');
+  });
+  const items = new Map();
+  channel.addEventListener('message', ({ data }) => {
+    if (activeCall !== call) return;
+    try {
+      const event = JSON.parse(data);
+      const speaker = event.type === 'conversation.item.input_audio_transcription.completed' ? 'you' : 'alex';
+      const final = ['conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.done'].includes(event.type);
+      if (call.startedAt && (final || ['input_audio_buffer.speech_started', 'response.output_audio_transcript.delta'].includes(event.type))) {
+        const key = speaker === 'you' || event.type === 'input_audio_buffer.speech_started'
+          ? 'you:' + event.item_id : 'alex:' + event.item_id + ':' + event.content_index;
+        let turn = items.get(key);
+        if (!turn) {
+          const now = Math.min(Date.now(), call.endedAt ?? Infinity);
+          turn = { speaker: key.startsWith('you:') ? 'you' : 'alex', at: (now - call.startedAt) / 1000, text: '' };
+          items.set(key, turn);
+          call.turns.push(turn);
+        }
+        turn.text = event.transcript ?? (turn.text + (event.delta ?? ''));
+      }
+      if (call.ending) return;
+      switch (event.type) {
+        case 'session.created':
+          clearTimeout(call.timer);
+          startRecording(call);
+          status.textContent = 'Connected. Alex will say hello.';
+          channel.send(JSON.stringify({ type: 'response.create' }));
+          break;
+        case 'output_audio_buffer.started':
+          panel.setAttribute('data-speaking', '');
+          status.textContent = 'Alex is speaking…';
+          break;
+        case 'output_audio_buffer.stopped':
+        case 'output_audio_buffer.cleared':
+        case 'input_audio_buffer.speech_started':
+          panel.removeAttribute('data-speaking');
+          status.textContent = 'Alex is listening.';
+          break;
+        case 'response.done':
+          if (event.response?.status === 'failed') finish(call, 'OpenAI could not reply. Check your API credits and usage limits.');
+          break;
+        case 'error':
+          status.textContent = 'OpenAI reported a voice error.';
+          break;
+      }
+    } catch {
+      finish(call, 'Could not process the OpenAI voice stream.');
+    }
+  });
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  const answer = await fetch(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: offer.sdp, signal: call.abort.signal,
+  });
+  if (!answer.ok) {
+    if (answer.status === 401 || answer.status === 503) setup.open = true;
+    throw new Error(await answer.text());
+  }
+  const sdp = await answer.text();
+  if (activeCall === call && !call.ending) await peer.setRemoteDescription({ type: 'answer', sdp });
+}
+
+playVoice.addEventListener('click', async () => {
+  try {
+    await audio.play();
+    playVoice.hidden = true;
+  } catch {
+    status.textContent = 'Audio playback was blocked. Check your browser’s sound settings.';
+  }
+});
 
 async function startCall(previousId) {
   if (activeCall || start.disabled) return;
   const mode = modes.querySelector(':checked').value;
-  const call = { mode, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
+  const call = { mode, limit: Number(limit.value) * 60, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
+  const selectedProvider = provider.value;
   activeCall = call;
   start.hidden = true;
   end.hidden = false;
   modes.disabled = true;
+  options.disabled = true;
   status.textContent = 'Allow microphone access to continue.';
 
   try {
-    call.context = new AudioContext({ sampleRate: 16000 });
+    call.context = new AudioContext(selectedProvider === 'gemini' ? { sampleRate: 16000 } : undefined);
     await call.context.resume();
     if (activeCall !== call || call.ending) return;
     const microphone = await navigator.mediaDevices.getUserMedia({
@@ -245,10 +385,15 @@ async function startCall(previousId) {
     call.microphone = microphone;
     call.timer = setTimeout(() => finish(call, 'The call took too long to connect. Try again.'), 35000);
     status.textContent = 'Connecting to Alex…';
-    await call.context.audioWorklet.addModule('/mic.js');
-    if (activeCall !== call || call.ending) return;
     call.input = call.context.createMediaStreamSource(microphone);
     call.output = call.context.createGain();
+    const path = '/call/' + selectedProvider + '/' + mode + (previousId ? '?continue=' + encodeURIComponent(previousId) : '');
+    if (selectedProvider === 'openai') {
+      await connectOpenAI(call, path);
+      return;
+    }
+    await call.context.audioWorklet.addModule('/mic.js');
+    if (activeCall !== call || call.ending) return;
     call.output.connect(call.context.destination);
     const capture = new AudioWorkletNode(call.context, 'microphone-capture', { numberOfOutputs: 0 });
     call.input.connect(capture);
@@ -257,7 +402,6 @@ async function startCall(previousId) {
       const encoded = btoa(String.fromCharCode(...new Uint8Array(data)));
       sendLive(call, { realtimeInput: { audio: { data: encoded, mimeType: 'audio/pcm;rate=16000' } } });
     };
-    const path = '/call/' + mode + (previousId ? '?continue=' + encodeURIComponent(previousId) : '');
     const answer = await fetch(path, { method: 'POST', signal: call.abort.signal });
     if (!answer.ok) {
       if (answer.status === 401 || answer.status === 503) setup.open = true;
@@ -293,24 +437,29 @@ window.addEventListener('beforeunload', event => {
 window.addEventListener('pagehide', () => {
   if (activeCall) finish(activeCall, 'Call ended.');
 });
+function showSetup() {
+  const name = provider.value === 'openai' ? 'OpenAI' : 'Gemini';
+  document.querySelector('#key-label').textContent = name + ' API key';
+  document.querySelector('#key').value = '';
+  document.querySelector('#fallback').hidden = Boolean(configured[provider.value]);
+  start.disabled = !canStart();
+  if (activeCall || pendingSave) return;
+  setup.open = !configured[provider.value];
+  status.textContent = !configured[provider.value]
+    ? 'Load a ' + name + ' key in Voice setup. Saved calls are available any time.'
+    : canStart()
+      ? 'Choose a practice mode and start your call.'
+      : 'Open Alex in a current version of Chrome, Edge, or Firefox to use your microphone.';
+}
+
+provider.addEventListener('change', showSetup);
+
 async function checkSetup() {
   try {
     const response = await fetch('/status');
     if (!response.ok) throw new Error();
-    const result = await response.json();
-    configured = result.configured;
-    if (!configured) {
-      document.querySelector('#fallback').hidden = false;
-      setup.open = true;
-      status.textContent = 'Load an API key in Voice setup to start a call. Saved calls are available any time.';
-    } else if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode || !window.MediaRecorder || !window.AudioContext) {
-      status.textContent = 'Open Alex in a current version of Chrome, Edge, or Firefox to use your microphone.';
-    } else {
-      document.querySelector('#fallback').hidden = true;
-      setup.open = false;
-      start.disabled = Boolean(pendingSave);
-      status.textContent = 'Choose a practice mode and start your call.';
-    }
+    configured = (await response.json()).configured;
+    showSetup();
   } catch {
     status.textContent = 'Alex could not connect to the local launcher. Restart it and reload this page.';
   }
@@ -322,7 +471,7 @@ document.querySelector('#key-form').addEventListener('submit', async event => {
   const button = event.currentTarget.querySelector('button');
   button.disabled = true;
   try {
-    const response = await fetch('/setup', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: key.value.trim() });
+    const response = await fetch('/setup/' + provider.value, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: key.value.trim() });
     if (!response.ok) throw new Error(await response.text());
     key.value = '';
     await checkSetup();

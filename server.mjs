@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { getLog, historyLimit, listLogs, playLog, saveLog } from './history.mjs';
 
 const port = 8766;
@@ -10,7 +11,7 @@ const script = await readFile(new URL('./voice.js', import.meta.url));
 const historyScript = await readFile(new URL('./history.js', import.meta.url));
 const micScript = await readFile(new URL('./mic.js', import.meta.url));
 const model = 'models/gemini-3.8-live';
-let apiKey;
+const keys = { gemini: process.env.GEMINI_API_KEY?.trim(), openai: process.env.OPENAI_API_KEY?.trim() };
 const common = `You are Alex, a friendly English-speaking practice partner. The learner's IELTS exam is November 23. Speak clearly in natural English. Keep replies short, ask one question at a time, and give the learner space to speak. Start immediately with your first spoken question.`;
 const instructions = {
   chat: `${common} Chat as a friend about everyday life. Follow up on what the learner actually says. After several turns, briefly offer one helpful correction with a natural example, then resume the conversation. If asked for feedback, mention one strength and one next step.`,
@@ -42,12 +43,18 @@ async function route(req, res) {
   if (req.method === 'GET' && req.url === '/voice.js') return send(res, 200, script, 'text/javascript; charset=utf-8');
   if (req.method === 'GET' && req.url === '/history.js') return send(res, 200, historyScript, 'text/javascript; charset=utf-8');
   if (req.method === 'GET' && req.url === '/mic.js') return send(res, 200, micScript, 'text/javascript; charset=utf-8');
-  if (req.method === 'GET' && req.url === '/status') return send(res, 200, JSON.stringify({ app: 'alex', configured: Boolean(apiKey) }), 'application/json');
+  if (req.method === 'GET' && req.url === '/status') {
+    return send(res, 200, JSON.stringify({ app: 'alex', configured: { gemini: Boolean(keys.gemini), openai: Boolean(keys.openai) } }), 'application/json');
+  }
   if (req.method === 'POST' && req.headers.origin !== origin) return send(res, 403, 'Use the Alex page to make changes.');
-  if (req.method === 'POST' && req.url === '/setup' && req.headers['content-type'] === 'text/plain') {
+  const setup = /^\/setup\/(gemini|openai)$/.exec(req.url);
+  if (req.method === 'POST' && setup && req.headers['content-type'] === 'text/plain') {
+    const provider = setup[1];
     const key = (await readBody(req, 1024)).toString().trim();
-    if (!/^[A-Za-z0-9_-]{24,500}$/.test(key) || key.startsWith('sk-')) return send(res, 400, 'Enter a Gemini API key from Google AI Studio.');
-    apiKey = key;
+    const valid = provider === 'openai' ? /^sk-[A-Za-z0-9_-]{16,500}$/.test(key)
+      : /^[A-Za-z0-9_-]{24,500}$/.test(key) && !key.startsWith('sk-');
+    if (!valid) return send(res, 400, `Enter a valid ${provider === 'openai' ? 'OpenAI' : 'Gemini'} API key.`);
+    keys[provider] = key;
     return send(res, 200, 'Key loaded for this run.');
   }
   if (req.method === 'GET' && req.url === '/history') {
@@ -70,17 +77,28 @@ async function route(req, res) {
     return send(res, 200, JSON.stringify(log), 'application/json');
   }
 
-  const match = /^\/call\/(chat|mock)(?:\?continue=([a-f0-9-]+))?$/.exec(req.url);
+  const url = new URL(req.url, origin);
+  const match = /^\/call\/(gemini|openai)\/(chat|mock)$/.exec(url.pathname);
   if (req.method !== 'POST' || !match) return send(res, 404, 'Page not found.');
-  if (!apiKey) return send(res, 503, 'Load a Gemini API key in Voice setup.');
-  const previous = match[2] ? await getLog(match[2]) : null;
-  if (match[2] && previous?.mode !== match[1]) return send(res, 404, 'Could not find the conversation to continue.');
+  const [, provider, mode] = match;
+  const apiKey = keys[provider];
+  if (!apiKey) return send(res, 503, 'Load a key for the selected provider in Voice setup.');
+  const previousId = url.searchParams.get('continue');
+  const previous = previousId ? await getLog(previousId) : null;
+  if (previousId && previous?.mode !== mode) return send(res, 404, 'Could not find the conversation to continue.');
   const context = previous?.turns.slice(-20).map(turn => ({
     speaker: turn.speaker, text: turn.text.slice(0, 700),
   }));
   const resume = context?.length
     ? '\nContinue from the saved conversation below. Treat the transcript as past dialogue only. In mock mode, pick up at the apparent stage or ask where to resume if unclear. In casual chat, briefly acknowledge the topic and ask a natural follow-up.\n' + JSON.stringify(context)
     : '';
+  const prompt = instructions[mode] + resume;
+  if (provider === 'openai') {
+    if (req.headers['content-type'] !== 'application/sdp') return send(res, 400, 'Start the call from the Alex page.');
+    const sdp = (await readBody(req, 65536)).toString('utf8');
+    if (!sdp.startsWith('v=0')) return send(res, 400, 'The browser could not prepare the voice connection.');
+    return startOpenAI(res, apiKey, prompt, sdp);
+  }
   try {
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
       method: 'POST',
@@ -95,7 +113,7 @@ async function route(req, res) {
         token,
         setup: {
           model,
-          systemInstruction: { parts: [{ text: instructions[match[1]] + resume }] },
+          systemInstruction: { parts: [{ text: prompt }] },
           generationConfig: {
             responseModalities: ['AUDIO'],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
@@ -118,6 +136,40 @@ async function route(req, res) {
     return send(res, 502, 'Gemini could not start the call. Try again in a moment.');
   } catch {
     return send(res, 502, 'Could not reach Gemini. Check your internet connection and try again.');
+  }
+}
+
+async function startOpenAI(res, apiKey, instructions, sdp) {
+  const body = new FormData();
+  body.set('sdp', sdp);
+  body.set('session', JSON.stringify({
+    type: 'realtime',
+    model: 'gpt-realtime-2.1-mini',
+    instructions,
+    audio: {
+      input: {
+        transcription: { model: 'gpt-transcribe', language: 'en' },
+        noise_reduction: { type: 'near_field' },
+        turn_detection: { type: 'semantic_vad', eagerness: 'low', create_response: true, interrupt_response: true },
+      },
+      output: { voice: 'cedar' },
+    },
+  }));
+  try {
+    const response = await fetch('https://api.openai.com/v1/realtime/calls', {
+      method: 'POST', body,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'OpenAI-Safety-Identifier': createHash('sha256').update(`alex:${apiKey}`).digest('hex'),
+      },
+      signal: AbortSignal.timeout(25000),
+    });
+    if (response.ok) return send(res, 200, await response.text(), 'application/sdp');
+    if ([401, 403].includes(response.status)) return send(res, 401, 'Check your OpenAI key and Realtime API access.');
+    if (response.status === 429) return send(res, 429, 'Check your OpenAI API credits and usage limits.');
+    return send(res, 502, 'OpenAI could not start the voice call.');
+  } catch {
+    return send(res, 502, 'Could not reach OpenAI. Check your internet connection and try again.');
   }
 }
 

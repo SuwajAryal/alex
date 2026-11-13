@@ -51,6 +51,11 @@
     #turns li { background: #fffefa; border-radius: 10px; padding: 10px; }
     #turns p { margin: 4px 0 0; }
     #retry-save { margin-top: 8px; }
+    .call-options { display: grid; gap: 10px; margin-bottom: 20px; }
+    .call-options label, #key-form label { display: grid; gap: 5px; }
+    select { width: 100%; font: inherit; padding: 7px; border: 1px solid #c8d0c5; border-radius: 8px; background: #fffefa; color: inherit; }
+    #call-clock { font-variant-numeric: tabular-nums; }
+    #reset-clock { margin-bottom: 8px; background: #e9f3e3; color: #214f3c; }
   </style>
 </head>
 <body>
@@ -66,21 +71,35 @@
         <label><input type="radio" name="mode" value="mock"> IELTS mock</label>
       </div>
     </fieldset>
+    <fieldset id="call-options" class="call-options">
+      <legend>Voice call</legend>
+      <label>Provider
+        <select id="provider"><option value="gemini">Gemini Live (free tier available)</option><option value="openai">OpenAI Realtime Mini (paid API)</option></select>
+      </label>
+      <label>Time limit
+        <select id="limit"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15" selected>15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="0">No time limit</option></select>
+      </label>
+    </fieldset>
     <button id="start" disabled>Start voice call</button>
+    <p id="call-clock" hidden></p>
+    <button id="reset-clock" hidden>Reset timer</button>
     <button id="end" hidden>End and save call</button>
+    <audio id="openai-audio" autoplay></audio>
+    <button id="play-voice" hidden>Play Alex’s audio</button>
     <button id="retry-save" hidden>Retry saving recording</button>
     <a class="fallback" id="fallback" href="https://chatgpt.com/" target="_blank" rel="noopener" hidden>Open ChatGPT Voice</a>
     <p id="status" role="status">Checking voice setup…</p>
-    <p class="privacy">Gemini processes call audio and transcription. End the call to save the recording and transcript on this computer.</p>
+    <p class="privacy">Your selected provider processes the audio and transcription. Call limits and timer resets apply only inside Alex. Provider quotas and billing still apply.</p>
     <details id="setup">
       <summary>Voice setup</summary>
-      <p>Use a Gemini API key from a Google AI Studio project marked <strong>Free Tier</strong>. Leave billing disabled to avoid charges. The key stays in memory for this run.</p>
+      <p>Use a Gemini key from a <strong>Free Tier</strong> project with billing disabled for free calls. OpenAI Realtime Mini requires API billing. Keys stay in memory for this run.</p>
       <form id="key-form" autocomplete="off">
-        <label for="key">Gemini API key</label>
+        <label id="key-label" for="key">Gemini API key</label>
         <input id="key" type="password" required spellcheck="false" autocomplete="off">
         <button type="submit">Load key</button>
       </form>
       <p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a Gemini API key</a></p>
+      <p><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get an OpenAI API key</a></p>
     </details>
     </section>
     <section class="history" aria-labelledby="history-title">
