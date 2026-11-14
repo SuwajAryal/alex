@@ -1,5 +1,5 @@
 import { refreshHistory } from './history.js';
-import { createExam } from './exam.js';
+import { createExam, nextCard } from './exam.js';
 
 const panel = document.querySelector('main');
 const modes = document.querySelector('#modes');
@@ -18,6 +18,7 @@ const playVoice = document.querySelector('#play-voice');
 const examPanel = document.querySelector('#exam-panel');
 const examStage = document.querySelector('#exam-stage');
 const cueCard = document.querySelector('#cue-card');
+const prepare = document.querySelector('#start-preparation');
 let activeCall;
 let pendingSave;
 let pendingNotice = '';
@@ -53,15 +54,24 @@ function startClock(call) {
 }
 
 function startExam(call, send) {
+  let card;
+  try {
+    card = nextCard(window.localStorage);
+  } catch {
+    card = nextCard();
+  }
   call.exam = createExam({
+    card,
     send,
     finish: () => finish(call, 'IELTS mock complete.', true),
     setMicrophone(enabled) {
       for (const track of call.microphone.getAudioTracks()) track.enabled = enabled;
     },
-    show(stage, seconds, card) {
+    show(stage, seconds, card, canPrepare = false) {
       if (examStage.textContent !== stage) examStage.textContent = stage;
-      clock.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' remaining';
+      prepare.hidden = !canPrepare;
+      clock.hidden = seconds === null;
+      if (seconds !== null) clock.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' remaining';
       if (card && cueCard.hidden) {
         cueCard.querySelector('strong').textContent = card.title;
         cueCard.querySelector('ul').replaceChildren(...card.points.map(point => {
@@ -71,11 +81,14 @@ function startExam(call, send) {
         }));
         cueCard.hidden = false;
       }
+      if (!card) cueCard.hidden = true;
     },
   });
   examPanel.hidden = false;
   call.exam.start();
 }
+
+prepare.addEventListener('click', () => activeCall?.exam?.startPreparation());
 
 reset.addEventListener('click', () => {
   if (!activeCall || activeCall.ending) return;
@@ -240,6 +253,7 @@ function connectLive(call, resume) {
         }
       }
       noteTurn(call, 'you', content.inputTranscription);
+      if (content.inputTranscription?.text) call.examHasAnswer = true;
       if (!call.exam?.suppressSpeech()) noteTurn(call, 'alex', content.outputTranscription);
       if ((content.generationComplete || content.turnComplete) && call.exam && !call.ending &&
           !content.interrupted && !call.exam.suppressSpeech() && call.playbackEnd > 0) {
@@ -249,6 +263,10 @@ function connectLive(call, resume) {
       if (content.turnComplete) {
         call.currentTurns = {};
         call.inputTiming = call.outputTiming = undefined;
+      }
+      if (!call.ending && call.examHasAnswer && (content.inputTranscription?.finished || content.turnComplete)) {
+        call.examHasAnswer = false;
+        call.exam?.discussionTurn();
       }
     } catch (error) {
       finish(call, error.message || 'Could not process the voice stream.');
@@ -425,12 +443,13 @@ async function connectOpenAI(call, path) {
           if (call.mode === 'mock') {
             startExam(call, (text, stage) => {
               audio.muted = false;
+              call.manualDiscussion = Boolean(stage.discussion);
               if (call.examResponse) channel.send(JSON.stringify({ type: 'response.cancel', response_id: call.examResponse }));
               if (call.examOutput) channel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
               channel.send(JSON.stringify({
                 type: 'session.update',
                 session: { type: 'realtime', audio: { input: {
-                  turn_detection: { type: 'semantic_vad', eagerness: 'low', create_response: !stage.wait && !stage.quietAfterPrompt, interrupt_response: !stage.wait },
+                  turn_detection: { type: 'semantic_vad', eagerness: 'low', create_response: !stage.wait && !stage.quietAfterPrompt && !stage.discussion, interrupt_response: !stage.wait },
                 } } },
               }));
               channel.send(JSON.stringify({
@@ -446,6 +465,11 @@ async function connectOpenAI(call, path) {
           break;
         case 'response.created':
           call.examResponse = event.response?.id;
+          break;
+        case 'input_audio_buffer.committed':
+          if (call.manualDiscussion && !call.exam.discussionTurn()) {
+            channel.send(JSON.stringify({ type: 'response.create' }));
+          }
           break;
         case 'output_audio_buffer.started':
           call.examOutput = event.response_id;
