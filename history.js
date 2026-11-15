@@ -8,7 +8,7 @@ const download = document.querySelector('#download');
 const turns = document.querySelector('#turns');
 const practiceAgain = document.querySelector('#practice-again');
 const dates = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const modeName = mode => mode === 'mock' ? 'IELTS mock' : 'Casual chat';
+const modeName = mode => ({ mock: 'IELTS mock', listening: 'Clip discussion', chat: 'Casual chat' })[mode] ?? 'Casual chat';
 let selected;
 let selection = 0;
 const feedbackPanel = document.querySelector('#feedback');
@@ -56,9 +56,10 @@ function show(log, autoFeedback) {
   player.open(download.href, log.duration);
   download.download = 'alex-' + log.startedAt.slice(0, 10) + '-' + log.id.slice(0, 8) + '-' + log.filename;
   practiceAgain.dataset.mode = log.mode;
+  practiceAgain.hidden = log.mode === 'listening';
   practiceAgain.dataset.id = log.id;
   practiceAgain.textContent = log.mode === 'mock' ? 'Start a new IELTS mock' : 'Continue this conversation';
-  document.querySelector('#resume-note').hidden = log.mode === 'mock';
+  document.querySelector('#resume-note').hidden = log.mode !== 'chat';
   turns.replaceChildren(...log.turns.map((turn, index) => {
     const row = document.createElement('li');
     const name = document.createElement('strong');

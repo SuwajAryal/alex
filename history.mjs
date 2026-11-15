@@ -37,7 +37,7 @@ export async function saveLog(form) {
   } catch {
     return null;
   }
-  if (!extension || !audio.size || !metadata || !['chat', 'mock'].includes(metadata.mode) ||
+  if (!extension || !audio.size || !metadata || !['chat', 'mock', 'listening'].includes(metadata.mode) ||
       !Number.isFinite(metadata.duration) || metadata.duration < 0 ||
       !Number.isFinite(Date.parse(metadata.startedAt)) || !Array.isArray(metadata.turns)) return null;
   const turns = metadata.turns.slice(0, 3000).flatMap(turn => {

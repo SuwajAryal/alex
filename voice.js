@@ -1,5 +1,6 @@
 import { refreshHistory } from './history.js';
 import { createExam, nextCard } from './exam.js';
+import { preparedNotes, showListening, stopClip } from './listening.js';
 
 const panel = document.querySelector('main');
 const modes = document.querySelector('#modes');
@@ -26,6 +27,7 @@ let configured = {};
 
 function canStart() {
   return configured[provider.value] && !pendingSave && navigator.mediaDevices?.getUserMedia &&
+    (modes.querySelector(':checked').value !== 'listening' || preparedNotes()) &&
     window.MediaRecorder && window.AudioContext &&
     (provider.value === 'gemini' ? window.AudioWorkletNode : window.RTCPeerConnection);
 }
@@ -343,6 +345,7 @@ async function finish(call, message, allowTranscript = false) {
   start.hidden = false;
   modes.disabled = false;
   options.disabled = false;
+  showListening(call.mode === 'listening');
   start.disabled = !canStart();
   status.textContent = message;
   if (!call.recording) return;
@@ -504,8 +507,9 @@ async function connectOpenAI(call, path) {
   });
   const offer = await peer.createOffer();
   await peer.setLocalDescription(offer);
+  const payload = call.notes ? JSON.stringify({ notes: call.notes, sdp: offer.sdp }) : offer.sdp;
   const answer = await fetch(path, {
-    method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: offer.sdp, signal: call.abort.signal,
+    method: 'POST', headers: { 'Content-Type': call.notes ? 'application/json' : 'application/sdp' }, body: payload, signal: call.abort.signal,
   });
   if (!answer.ok) {
     if (answer.status === 401 || answer.status === 503) setup.open = true;
@@ -528,6 +532,11 @@ async function startCall(previousId) {
   if (activeCall || start.disabled) return;
   const mode = modes.querySelector(':checked').value;
   const call = { mode, limit: mode === 'mock' ? 0 : Number(limit.value) * 60, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
+  if (mode === 'listening') {
+    call.notes = preparedNotes();
+    stopClip();
+    showListening(true, true);
+  }
   const selectedProvider = provider.value;
   activeCall = call;
   start.hidden = true;
@@ -580,7 +589,10 @@ async function startCall(previousId) {
       const encoded = btoa(String.fromCharCode(...new Uint8Array(data)));
       sendLive(call, { realtimeInput: { audio: { data: encoded, mimeType: 'audio/pcm;rate=16000' } } });
     };
-    const answer = await fetch(path, { method: 'POST', signal: call.abort.signal });
+    const answer = await fetch(path, {
+      method: 'POST', signal: call.abort.signal,
+      ...(call.notes ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes: call.notes }) } : {}),
+    });
     if (!answer.ok) {
       if (answer.status === 401 || answer.status === 503) setup.open = true;
       throw new Error(await answer.text());
@@ -604,8 +616,20 @@ async function startCall(previousId) {
 start.addEventListener('click', () => startCall());
 start.addEventListener('continue-call', event => startCall(event.detail));
 modes.addEventListener('change', () => {
-  limit.closest('label').hidden = modes.querySelector(':checked').value === 'mock';
+  const mode = modes.querySelector(':checked').value;
+  limit.closest('label').hidden = mode === 'mock';
+  showListening(mode === 'listening');
+  if (mode !== 'listening') stopClip();
+  updateStart();
 });
+document.querySelector('#listening-panel').addEventListener('clip-change', updateStart);
+
+function updateStart() {
+  start.disabled = !canStart();
+  if (!activeCall && !pendingSave && modes.querySelector(':checked').value === 'listening' && configured[provider.value]) {
+    status.textContent = preparedNotes() ? 'Start the conversation when you’re ready.' : 'Prepare an audio clip to start.';
+  }
+}
 
 end.addEventListener('click', () => finish(activeCall, 'Call ended.', true));
 retry.addEventListener('click', savePending);
@@ -631,6 +655,7 @@ function showSetup() {
     : canStart()
       ? 'Choose a practice mode and start your call.'
       : 'Open Alex in a current version of Chrome, Edge, or Firefox to use your microphone.';
+  updateStart();
 }
 
 provider.addEventListener('change', showSetup);

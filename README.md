@@ -11,6 +11,12 @@ Alex is a local voice practice app with casual conversations and IELTS Speaking 
 
 The launcher uses Node.js 22 or later. You can also run `node server.mjs` and open the dashboard yourself.
 
+## Discuss a clip
+
+Select **Discuss a clip**, paste a direct HTTPS audio link or choose an audio file up to 12 MB, then select **Prepare clip**. If the source website blocks browser access, download the audio and choose the file. Use the player to listen, then start a voice call. Alex opens with a reaction and talks through the ideas with you like a colleague after a talk.
+
+Clip analysis uses your Gemini key. Either voice provider can use the resulting notes. Alex keeps the source audio and notes out of local practice history, which saves the conversation itself.
+
 ## Practice history
 
 Select **End and save call** to save both voices in one compressed audio file and store a timestamped transcript. The dashboard lets you replay or download the recording, read the transcript, or continue the conversation using recent turns.
