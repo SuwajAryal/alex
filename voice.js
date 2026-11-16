@@ -1,5 +1,5 @@
 import { refreshHistory } from './history.js';
-import { createExam, nextCard } from './exam.js';
+import { createExam, nextCard, nextTopic } from './exam.js';
 import { preparedNotes, showListening, stopClip } from './listening.js';
 
 const panel = document.querySelector('main');
@@ -57,13 +57,16 @@ function startClock(call) {
 
 function startExam(call, send) {
   let card;
+  let topic;
   try {
     card = nextCard(window.localStorage);
+    topic = nextTopic(window.localStorage);
   } catch {
     card = nextCard();
   }
   call.exam = createExam({
     card,
+    topic,
     send,
     finish: () => finish(call, 'IELTS mock complete.', true),
     setMicrophone(enabled) {

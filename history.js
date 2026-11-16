@@ -27,15 +27,31 @@ async function review(id, create = false) {
     if (selection !== current) return;
     feedbackStatus.textContent = '';
     if (!feedback) return;
-    const fields = { strength: 'What worked', coherence: 'Answer development and coherence', vocabulary: 'Vocabulary', grammar: 'Grammar', drill: 'Try this speaking drill' };
-    feedbackResult.replaceChildren(...Object.entries(fields).flatMap(([key, title]) => {
+    const titles = { coherence: 'Fluency and coherence', vocabulary: 'Lexical resource', grammar: 'Grammatical range and accuracy', pronunciation: 'Pronunciation' };
+    const rows = feedback.version === 2 ? [
+      ['Estimated Speaking band', feedback.overall === null ? 'Insufficient evidence for an overall estimate' : feedback.overall.toFixed(1)],
+      ['Review coverage', (feedback.audioIncluded ? 'Transcript and recording supplied. ' : 'Transcript only. ') + feedback.coverage],
+      ['What worked', feedback.strength],
+      ...Object.entries(titles).map(([key, title]) => {
+        const criterion = feedback.criteria[key];
+        return [title + ' · ' + (criterion.band === null ? 'Not scored' : 'Band ' + criterion.band.toFixed(1)),
+          criterion.evidence + '\n\nTry: ' + criterion.tip];
+      }),
+      ['Next speaking drill', feedback.drill],
+    ] : [
+      ['What worked', feedback.strength],
+      ...Object.entries(titles).filter(([key]) => feedback[key]).map(([key, title]) => [title, feedback[key]]),
+      ['Next speaking drill', feedback.drill],
+    ];
+    feedbackResult.replaceChildren(...rows.flatMap(([title, content]) => {
       const term = document.createElement('dt');
       const description = document.createElement('dd');
       term.textContent = title;
-      description.textContent = feedback[key];
+      description.textContent = content;
       return [term, description];
     }));
-    generate.hidden = true;
+    generate.hidden = feedback.version === 2;
+    if (!generate.hidden) generate.textContent = 'Update feedback with band estimates';
   } catch (error) {
     if (selection === current) feedbackStatus.textContent = error.message;
   } finally {
@@ -84,6 +100,7 @@ function show(log, autoFeedback) {
   feedbackStatus.textContent = '';
   feedbackResult.replaceChildren();
   generate.hidden = false;
+  generate.textContent = 'Generate feedback';
   if (log.mode === 'mock') review(log.id, autoFeedback && log.turns.some(turn => turn.speaker === 'you'));
 }
 

@@ -77,6 +77,23 @@ export async function getFeedback(id) {
   }
 }
 
+export async function reviewAudio(log) {
+  const mimeType = log.type === 'audio/mp4' ? 'audio/m4a' : log.type;
+  if (!['audio/webm', 'audio/ogg', 'audio/m4a'].includes(mimeType) || log.bytes > 12 * 1024 * 1024) return;
+  try {
+    const data = await readFile(join(root, log.id, log.filename));
+    if (data.length && data.length <= 12 * 1024 * 1024) return { mimeType, data: data.toString('base64') };
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+export async function recentPrompts(mode, excludedId) {
+  const recent = (await listLogs()).filter(log => log.mode === mode && log.id !== excludedId).slice(0, 4);
+  const logs = await Promise.all(recent.map(log => getLog(log.id)));
+  return logs.map(log => log?.turns.filter(turn => turn.speaker === 'alex').slice(0, 10).map(turn => turn.text.slice(0, 180)) ?? []);
+}
+
 export async function saveFeedback(id, feedback) {
   const folder = join(root, id);
   const pending = join(folder, '.feedback-' + randomUUID());

@@ -12,19 +12,35 @@ const cards = [
   { title: 'Describe a tool or app you find useful.', points: ['What it does', 'When you use it', 'How you learned to use it', 'Explain why you find it useful'], angles: ['What makes technology easy for different people to use?', 'Who is responsible for teaching people about online privacy?', 'Which everyday tasks should still be possible without a smartphone?'] },
   { title: 'Describe a change that improved your neighbourhood.', points: ['What changed', 'When it happened', 'Who benefited from it', 'Explain why it was an improvement'], angles: ['Why do residents disagree over local development?', 'How should councils decide which neighbourhood improvements to fund?', 'What might make a neighbourhood more inclusive in future?'] },
 ];
-const topics = ['home and daily routines', 'work or studies and leisure', 'hometown and weekends', 'daily travel and music'];
+const topics = ['home and daily routines', 'work or studies and leisure', 'hometown and weekends', 'daily travel and music', 'reading and weather', 'shopping and cooking', 'photography and mornings', 'sports and public transport'];
 
-export function nextCard(storage) {
-  const key = 'alex.last-cue-card';
-  const previous = storage?.getItem(key);
-  const pool = cards.filter(card => card.title !== previous);
-  const card = pool[Math.floor(Math.random() * pool.length)];
-  storage?.setItem(key, card.title);
-  return card;
+function chooseUnused(choices, storage, key, previous) {
+  let used = [];
+  try {
+    const saved = JSON.parse(storage?.getItem(key) ?? 'null');
+    if (Array.isArray(saved)) used = saved.filter(value => choices.includes(value));
+  } catch {}
+  if (!used.length && choices.includes(previous)) used = [previous];
+  let pool = choices.filter(choice => !used.includes(choice));
+  if (!pool.length) {
+    pool = choices.filter(choice => choice !== used.at(-1));
+    used = [];
+  }
+  const choice = pool[Math.floor(Math.random() * pool.length)];
+  storage?.setItem(key, JSON.stringify([...used, choice]));
+  return choice;
 }
 
-export function createExam({ send, finish, show, setMicrophone, card = nextCard(), now = () => performance.now() }) {
-  const topic = topics[Math.floor(Math.random() * topics.length)];
+export function nextCard(storage) {
+  const title = chooseUnused(cards.map(card => card.title), storage, 'alex.used-cue-cards', storage?.getItem('alex.last-cue-card'));
+  return cards.find(card => card.title === title);
+}
+
+export function nextTopic(storage) {
+  return chooseUnused(topics, storage, 'alex.used-interview-topics');
+}
+
+export function createExam({ send, finish, show, setMicrophone, card = nextCard(), topic = nextTopic(), now = () => performance.now() }) {
   const stages = [
     { name: 'Part 1 · Introduction and interview', seconds: 270, instruction: `Start Part 1. Introduce yourself as the practice examiner and ask the candidate's name. Do not request identification or private details. Then interview them on familiar topics such as ${topic}. Ask one question at a time and cover at least two topics. Keep going until the next EXAM CONTROL instruction.` },
     { name: 'Part 2 · Preparation', seconds: 60, prepare: true, wait: true, mute: true, instruction: `Transition to Part 2. Read the title and each of the following points clearly, at an unhurried pace, pausing briefly between each point. Title: ${card.title} Points: ${card.points.join('. ')}. Then say: When you are ready to prepare, select Start one-minute preparation. Then stay silent.` },

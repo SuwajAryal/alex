@@ -109,7 +109,7 @@
     #turns button:hover { border-color: #a35c70; }
     #turns button span { display: block; margin-top: 4px; }
     #feedback-result dt { font-weight: 750; }
-    #feedback-result dd { margin: 4px 0 14px; line-height: 1.5; overflow-wrap: anywhere; }
+    #feedback-result dd { margin: 4px 0 14px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
     @media (max-width: 730px) { .dashboard { grid-template-columns: minmax(0, 1fr); } .hero { min-height: 240px; } .type-study { min-height: 142px; } }
     @media (max-width: 480px) {
       .hero { grid-template-columns: 1fr; min-height: 0; }
@@ -217,7 +217,7 @@
         <ol id="turns"></ol>
         <section id="feedback" hidden aria-labelledby="feedback-title">
           <h3 id="feedback-title">IELTS feedback</h3>
-          <p class="privacy">Gemini reviews the transcript for answer development, vocabulary and grammar. Pronunciation needs an audio review.</p>
+          <p class="privacy">Alex sends the transcript and, when supported, the saved recording to Gemini. Bands are practice estimates.</p>
           <p id="feedback-status" role="status"></p>
           <button id="generate-feedback" type="button">Generate feedback</button>
           <dl id="feedback-result"></dl>

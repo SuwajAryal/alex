@@ -25,7 +25,7 @@ Alex saves calls under the local `history/` folder. Git ignores that folder. You
 
 Select a transcript turn to play its excerpt. Older recordings use approximate timestamps. New calls capture speech and playback boundaries when available.
 
-IELTS mocks generate written feedback after saving when a Gemini key is loaded. Open any saved mock and choose **Generate feedback** if it has no review. Gemini receives the transcript for this feature, and the review is cached alongside the recording. Feedback covers answer development, vocabulary and grammar from the transcript.
+IELTS mocks generate written feedback after saving when a Gemini key is loaded. Open any saved mock to generate or upgrade its review. Gemini receives the transcript and, when supported, the recording. Alex saves the review locally. It includes evidence, tips and supported band estimates across the four IELTS Speaking criteria. An overall estimate requires all four bands.
 
 In **Casual chat**, Alex chats like a friend, gives occasional corrections, and teaches useful words and phrases. Choose a call limit from 5 to 60 minutes, or **No time limit**. The default is 15 minutes. At the limit Alex ends and saves the call. **Reset timer** restarts the countdown or elapsed display while keeping the same call and recording.
 
