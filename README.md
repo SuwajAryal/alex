@@ -2,7 +2,7 @@
 
 Alex is a downloadable voice practice app for English conversation and IELTS Speaking. Run it on your computer, choose a voice provider, and connect with your own API key.
 
-**[Download Alex for Windows (ZIP)](https://github.com/SuwajAryal/alex/archive/refs/heads/main.zip)**
+**[Download Alex for Windows (ZIP)](https://codeload.github.com/SuwajAryal/alex/zip/refs/heads/main)**
 
 ## Quick start
 
@@ -25,7 +25,7 @@ You can load both keys and choose the provider before each call. Keys entered in
 ## Practice modes
 
 - **Casual chat.** Talk like friends, get occasional corrections, and practise useful words and phrases. Set a call limit or practise without a timer.
-- **IELTS mock.** Take a timed three-part interview. Use Alex’s rotating topics or upload a single question sheet as an image or PDF. You can also paste a screenshot. In Part 2, read the cue card and select **Start one-minute preparation** when ready. With a Gemini key loaded, saved mocks can get feedback and estimated bands for the four IELTS Speaking criteria when the evidence supports them.
+- **IELTS mock.** Take a timed three-part interview. Use Alex’s rotating topics, upload an image or PDF, or paste a screenshot. You can also select **Paste question text**, paste a sheet with Part 1, Part 2 and Part 3 headings, then select **Use these questions**. The app parses pasted text on your computer and sends the questions to your chosen voice provider during the mock. In Part 2, read the cue card and select **Start one-minute preparation** when ready. With a Gemini key loaded, saved mocks can get feedback and estimated bands for the four IELTS Speaking criteria when the evidence supports them.
 - **Discuss a clip.** Paste a direct HTTPS audio link or choose an audio file up to 12 MB. Prepare it with Gemini, listen in the player, then discuss the ideas with Alex. If a site blocks direct browser access, download the clip first and choose the file.
 
 ## Recordings and privacy

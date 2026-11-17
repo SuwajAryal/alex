@@ -1,5 +1,5 @@
 import { refreshHistory } from './history.js';
-import { createExam, nextCard, nextTopic } from './exam.js';
+import { createExam, nextCard, nextTopic, parseQuestionText } from './exam.js';
 import { preparedNotes, showListening, stopClip } from './listening.js';
 
 const panel = document.querySelector('main');
@@ -23,6 +23,8 @@ const prepare = document.querySelector('#start-preparation');
 const sheetPanel = document.querySelector('#question-sheet');
 const sheetFile = document.querySelector('#sheet-file');
 const sheetPaste = document.querySelector('#sheet-paste');
+const sheetText = document.querySelector('#sheet-text');
+const sheetTextOption = document.querySelector('#sheet-text-option');
 const sheetStatus = document.querySelector('#sheet-status');
 const sheetReview = document.querySelector('#sheet-review');
 const sheetPreview = document.querySelector('#sheet-preview');
@@ -31,6 +33,7 @@ const sheetRetry = document.querySelector('#sheet-retry');
 let questionSheet;
 let sheetRequest;
 let sheetSelected = false;
+let sheetFromText = false;
 let retrySheet;
 const sheetTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 let activeCall;
@@ -682,6 +685,7 @@ async function encodeScreenshot(file) {
 
 async function prepareSheet(file, pasted = false) {
   resetSheet();
+  sheetFromText = false;
   retrySheet = undefined;
   sheetRetry.hidden = true;
   sheetSelected = Boolean(file);
@@ -717,20 +721,7 @@ async function prepareSheet(file, pasted = false) {
     }
     const sheet = await response.json();
     if (controller.signal.aborted) return;
-    questionSheet = sheet;
-    for (const [heading, entries] of [['Part 1', sheet.part1], ['Part 2 · ' + sheet.title, sheet.points], ['Part 3', sheet.part3]]) {
-      const title = document.createElement('h4');
-      title.textContent = heading;
-      const list = document.createElement('ol');
-      for (const entry of entries) {
-        const item = document.createElement('li');
-        item.textContent = entry;
-        list.append(item);
-      }
-      sheetPreview.append(title, list);
-    }
-    sheetReview.hidden = false;
-    sheetStatus.textContent = 'Sheet ready. Alex will use it in this mock.';
+    showQuestionSheet(sheet);
   } catch (error) {
     if (!controller.signal.aborted) {
       sheetStatus.textContent = error.message || 'Could not read the sheet.';
@@ -745,11 +736,51 @@ async function prepareSheet(file, pasted = false) {
   }
 }
 
+function showQuestionSheet(sheet) {
+  questionSheet = sheet;
+  for (const [heading, entries] of [['Part 1', sheet.part1], ['Part 2 · ' + sheet.title, sheet.points], ['Part 3', sheet.part3]]) {
+    const title = document.createElement('h4');
+    title.textContent = heading;
+    const list = document.createElement('ol');
+    for (const entry of entries) {
+      const item = document.createElement('li');
+      item.textContent = entry;
+      list.append(item);
+    }
+    sheetPreview.append(title, list);
+  }
+  sheetReview.hidden = false;
+  sheetStatus.textContent = 'Sheet ready. Alex will use it in this mock.';
+}
+
 sheetFile.addEventListener('change', () => prepareSheet(sheetFile.files[0]));
 sheetRetry.addEventListener('click', () => retrySheet?.());
 sheetClear.addEventListener('click', () => {
   sheetFile.value = '';
+  sheetText.value = '';
+  sheetTextOption.open = false;
   prepareSheet();
+});
+
+document.querySelector('#sheet-use-text').addEventListener('click', () => {
+  resetSheet();
+  sheetFile.value = '';
+  sheetRetry.hidden = true;
+  sheetSelected = sheetFromText = true;
+  sheetClear.hidden = false;
+  try {
+    showQuestionSheet(parseQuestionText(sheetText.value));
+  } catch (error) {
+    sheetStatus.textContent = error.message;
+  }
+  updateStart();
+});
+
+sheetText.addEventListener('input', () => {
+  if (!sheetFromText) return;
+  resetSheet();
+  sheetStatus.textContent = 'Select Use these questions to apply your edits.';
+  updateStart();
 });
 
 sheetPaste.addEventListener('paste', event => {
