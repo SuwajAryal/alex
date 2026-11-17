@@ -22,12 +22,15 @@ const cueCard = document.querySelector('#cue-card');
 const prepare = document.querySelector('#start-preparation');
 const sheetPanel = document.querySelector('#question-sheet');
 const sheetFile = document.querySelector('#sheet-file');
+const sheetPaste = document.querySelector('#sheet-paste');
 const sheetStatus = document.querySelector('#sheet-status');
 const sheetReview = document.querySelector('#sheet-review');
 const sheetPreview = document.querySelector('#sheet-preview');
 const sheetClear = document.querySelector('#sheet-clear');
 let questionSheet;
 let sheetRequest;
+let sheetSelected = false;
+const sheetTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 let activeCall;
 let pendingSave;
 let pendingNotice = '';
@@ -35,7 +38,7 @@ let configured = {};
 
 function canStart() {
   return configured[provider.value] && !pendingSave && navigator.mediaDevices?.getUserMedia &&
-    (modes.querySelector(':checked').value !== 'mock' || !sheetFile.files.length || questionSheet) &&
+    (modes.querySelector(':checked').value !== 'mock' || !sheetSelected || questionSheet) &&
     (modes.querySelector(':checked').value !== 'listening' || preparedNotes()) &&
     window.MediaRecorder && window.AudioContext &&
     (provider.value === 'gemini' ? window.AudioWorkletNode : window.RTCPeerConnection);
@@ -645,25 +648,18 @@ document.querySelector('#listening-panel').addEventListener('clip-change', updat
 
 function resetSheet() {
   sheetRequest?.abort();
+  sheetRequest = undefined;
   questionSheet = undefined;
   sheetReview.hidden = true;
   sheetReview.open = false;
   sheetPreview.replaceChildren();
 }
 
-sheetClear.addEventListener('click', () => {
-  sheetFile.value = '';
+async function prepareSheet(file) {
   resetSheet();
-  sheetClear.hidden = true;
-  sheetStatus.textContent = 'Using built-in questions.';
-  updateStart();
-});
-
-sheetFile.addEventListener('change', async () => {
-  resetSheet();
-  updateStart();
-  const file = sheetFile.files[0];
+  sheetSelected = Boolean(file);
   sheetClear.hidden = !file;
+  updateStart();
   if (!file) {
     sheetStatus.textContent = 'Using built-in questions.';
     return;
@@ -672,8 +668,8 @@ sheetFile.addEventListener('change', async () => {
     sheetStatus.textContent = 'Choose a sheet under 10 MB.';
     return;
   }
-  const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
-  const type = types[file.name.split('.').at(-1).toLowerCase()];
+  const type = Object.values(sheetTypes).includes(file.type)
+    ? file.type : sheetTypes[file.name.split('.').at(-1).toLowerCase()];
   if (!type) {
     sheetStatus.textContent = 'Choose a PNG, JPEG, WebP or PDF.';
     return;
@@ -705,9 +701,33 @@ sheetFile.addEventListener('change', async () => {
   } catch (error) {
     if (!controller.signal.aborted) sheetStatus.textContent = error.message || 'Could not read the sheet.';
   } finally {
-    if (!controller.signal.aborted) updateStart();
+    if (sheetRequest === controller) {
+      sheetRequest = undefined;
+      updateStart();
+    }
   }
+}
+
+sheetFile.addEventListener('change', () => prepareSheet(sheetFile.files[0]));
+sheetClear.addEventListener('click', () => {
+  sheetFile.value = '';
+  prepareSheet();
 });
+
+sheetPaste.addEventListener('paste', event => {
+  event.preventDefault();
+  if (sheetPanel.disabled || sheetPanel.hidden) return;
+  const clipboard = event.clipboardData;
+  const file = Array.from(clipboard?.files ?? []).find(file => file.type.startsWith('image/')) ??
+    Array.from(clipboard?.items ?? []).find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
+  if (!file) {
+    if (!sheetRequest) sheetStatus.textContent = 'Copy a screenshot or image, then paste it here.';
+    return;
+  }
+  sheetFile.value = '';
+  prepareSheet(file);
+});
+sheetPaste.addEventListener('input', () => { sheetPaste.value = ''; });
 
 function updateStart() {
   start.disabled = !canStart();

@@ -19,7 +19,7 @@ Clip analysis uses your Gemini key. Either voice provider can use the resulting 
 
 ## Practice history
 
-In **IELTS mock**, you can optionally upload one Speaking question sheet as a PNG, JPEG, WebP or PDF up to 10 MB. Gemini extracts the Part 1 questions, Part 2 cue card and Part 3 questions. Check the extracted text before starting if you want to confirm the scan. Alex uses the sheet in the timed mock, and **Use built-in questions** clears the upload. The prepared sheet stays in the current browser tab.
+In **IELTS mock**, you can optionally upload one Speaking question sheet as a PNG, JPEG, WebP or PDF up to 10 MB, or paste a copied screenshot into the question-sheet field. Gemini extracts the Part 1 questions, Part 2 cue card and Part 3 questions. Check the extracted text before starting if you want to confirm the scan. Alex uses the sheet in the timed mock, and **Use built-in questions** clears it. The prepared sheet stays in the current browser tab.
 
 Select **End and save call** to save both voices in one compressed audio file and store a timestamped transcript. The dashboard lets you replay or download the recording, read the transcript, or continue the conversation using recent turns.
 

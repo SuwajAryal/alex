@@ -78,6 +78,7 @@
     #start-preparation { margin-top: 12px; }
     #question-sheet { margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
     #sheet-file { display: block; width: 100%; margin: 8px 0; font: inherit; }
+    #sheet-paste { display: block; width: 100%; min-height: 52px; margin: 6px 0 8px; padding: 9px; resize: vertical; border: 1px dashed var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; }
     #sheet-preview { max-height: 18rem; overflow: auto; margin: 10px 0; }
     #listening-panel { padding: 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; }
     #clip-form fieldset { display: grid; gap: 10px; margin-bottom: 0; }
@@ -176,7 +177,9 @@
       <legend>Question sheet (optional)</legend>
       <label for="sheet-file">Upload one IELTS Speaking test</label>
       <input id="sheet-file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf">
-      <p id="sheet-status" class="privacy" role="status">Uses built-in questions unless you upload a sheet.</p>
+      <label for="sheet-paste">Or paste a screenshot</label>
+      <textarea id="sheet-paste" rows="1" placeholder="Click here, then press Ctrl+V" aria-describedby="sheet-status"></textarea>
+      <p id="sheet-status" class="privacy" role="status">Uses built-in questions until you add a sheet.</p>
       <details id="sheet-review" hidden>
         <summary>Check extracted questions</summary>
         <div id="sheet-preview"></div>
