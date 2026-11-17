@@ -27,15 +27,33 @@ export async function extractQuestionSheet(bytes, mimeType, key) {
     }),
     signal: AbortSignal.timeout(60000),
   });
-  if (!result.ok) throw error(result.status === 429 ? 'Gemini’s quota is exhausted. Try again when it resets.' : 'Gemini could not read the sheet. Check your key or try a clearer image.', result.status === 429 ? 429 : 502);
+  if (!result.ok) {
+    const failure = await result.json().catch(() => null);
+    const invalidKey = failure?.error?.details?.some(detail => detail.reason === 'API_KEY_INVALID');
+    if (invalidKey || [401, 403].includes(result.status)) {
+      throw error('Gemini rejected the key or project access. Reload your Gemini key in Voice setup, then retry.', 403);
+    }
+    if (result.status === 429) throw error('Gemini’s quota is exhausted. Retry when it resets.', 429);
+    if (result.status >= 500) throw error('Gemini’s image reader is temporarily unavailable. Retry this sheet in a moment.', 503);
+    throw error('Gemini rejected the sheet request. Retry this sheet or try Choose File with the original image.', 502);
+  }
   const data = await result.json();
   const output = data.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('');
   let parsed;
-  try { parsed = JSON.parse(output); } catch { throw error('Could not extract the questions. Try a clearer image.', 422); }
+  try {
+    parsed = JSON.parse(output?.trim().replace(/^\x60{3}(?:json)?\s*|\s*\x60{3}$/gi, ''));
+  } catch {
+    throw error('Gemini did not return a complete set of questions. Retry this sheet.', 422);
+  }
   const title = typeof parsed?.title === 'string' ? parsed.title.trim().replace(/\s+/g, ' ') : '';
   const sheet = { part1: normalizeList(parsed?.part1, 30), title, points: normalizeList(parsed?.points, 12), part3: normalizeList(parsed?.part3, 30) };
-  if (!sheet.part1.length || !sheet.title || !sheet.points.length || !sheet.part3.length) {
-    throw error('Alex needs a readable sheet with Part 1 questions, a Part 2 cue card, and Part 3 questions.', 422);
+  const missing = [
+    !sheet.part1.length && 'Part 1 questions',
+    (!sheet.title || !sheet.points.length) && 'the full Part 2 cue card',
+    !sheet.part3.length && 'Part 3 questions',
+  ].filter(Boolean);
+  if (missing.length) {
+    throw error('Gemini missed ' + missing.join(', ') + '. Retry this sheet or include those sections in the image.', 422);
   }
   if ([title, ...sheet.part1, ...sheet.points, ...sheet.part3].some(item => item.length > 600)) {
     throw error('Some entries are too long. Try uploading a single IELTS Speaking test.', 422);

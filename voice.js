@@ -27,9 +27,11 @@ const sheetStatus = document.querySelector('#sheet-status');
 const sheetReview = document.querySelector('#sheet-review');
 const sheetPreview = document.querySelector('#sheet-preview');
 const sheetClear = document.querySelector('#sheet-clear');
+const sheetRetry = document.querySelector('#sheet-retry');
 let questionSheet;
 let sheetRequest;
 let sheetSelected = false;
+let retrySheet;
 const sheetTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 let activeCall;
 let pendingSave;
@@ -655,8 +657,33 @@ function resetSheet() {
   sheetPreview.replaceChildren();
 }
 
-async function prepareSheet(file) {
+async function encodeScreenshot(file) {
+  const bitmap = await createImageBitmap(file).catch(() => {
+    throw new Error('The browser could not open the clipboard image. Copy the screenshot again or use Choose File.');
+  });
+  try {
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 4096 / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const encode = type => new Promise(resolve => canvas.toBlob(resolve, type, 0.95));
+    const png = await encode('image/png');
+    const image = png && png.size <= 10 * 1024 * 1024 ? png : await encode('image/jpeg');
+    if (!image) throw new Error('The browser could not prepare this screenshot. Try Choose File.');
+    return image;
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function prepareSheet(file, pasted = false) {
   resetSheet();
+  retrySheet = undefined;
+  sheetRetry.hidden = true;
   sheetSelected = Boolean(file);
   sheetClear.hidden = !file;
   updateStart();
@@ -664,13 +691,13 @@ async function prepareSheet(file) {
     sheetStatus.textContent = 'Using built-in questions.';
     return;
   }
-  if (file.size > 10 * 1024 * 1024) {
+  if (!pasted && file.size > 10 * 1024 * 1024) {
     sheetStatus.textContent = 'Choose a sheet under 10 MB.';
     return;
   }
   const type = Object.values(sheetTypes).includes(file.type)
     ? file.type : sheetTypes[file.name.split('.').at(-1).toLowerCase()];
-  if (!type) {
+  if (!type && !pasted) {
     sheetStatus.textContent = 'Choose a PNG, JPEG, WebP or PDF.';
     return;
   }
@@ -678,10 +705,16 @@ async function prepareSheet(file) {
   sheetRequest = controller;
   sheetStatus.textContent = 'Reading question sheet…';
   try {
+    const body = pasted ? await encodeScreenshot(file) : file;
+    if (controller.signal.aborted) return;
+    if (body.size > 10 * 1024 * 1024) throw new Error('Choose a screenshot or sheet under 10 MB.');
     const response = await fetch('/exam/question-sheet', {
-      method: 'POST', headers: { 'Content-Type': type }, body: file, signal: controller.signal,
+      method: 'POST', headers: { 'Content-Type': pasted ? body.type : type }, body, signal: controller.signal,
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 409) setup.open = true;
+      throw new Error(await response.text());
+    }
     const sheet = await response.json();
     if (controller.signal.aborted) return;
     questionSheet = sheet;
@@ -699,7 +732,11 @@ async function prepareSheet(file) {
     sheetReview.hidden = false;
     sheetStatus.textContent = 'Sheet ready. Alex will use it in this mock.';
   } catch (error) {
-    if (!controller.signal.aborted) sheetStatus.textContent = error.message || 'Could not read the sheet.';
+    if (!controller.signal.aborted) {
+      sheetStatus.textContent = error.message || 'Could not read the sheet.';
+      retrySheet = () => prepareSheet(file, pasted);
+      sheetRetry.hidden = false;
+    }
   } finally {
     if (sheetRequest === controller) {
       sheetRequest = undefined;
@@ -709,6 +746,7 @@ async function prepareSheet(file) {
 }
 
 sheetFile.addEventListener('change', () => prepareSheet(sheetFile.files[0]));
+sheetRetry.addEventListener('click', () => retrySheet?.());
 sheetClear.addEventListener('click', () => {
   sheetFile.value = '';
   prepareSheet();
@@ -725,7 +763,7 @@ sheetPaste.addEventListener('paste', event => {
     return;
   }
   sheetFile.value = '';
-  prepareSheet(file);
+  prepareSheet(file, true);
 });
 sheetPaste.addEventListener('input', () => { sheetPaste.value = ''; });
 
