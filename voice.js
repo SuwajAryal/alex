@@ -24,7 +24,6 @@ const sheetPanel = document.querySelector('#question-sheet');
 const sheetFile = document.querySelector('#sheet-file');
 const sheetPaste = document.querySelector('#sheet-paste');
 const sheetText = document.querySelector('#sheet-text');
-const sheetTextOption = document.querySelector('#sheet-text-option');
 const sheetStatus = document.querySelector('#sheet-status');
 const sheetReview = document.querySelector('#sheet-review');
 const sheetPreview = document.querySelector('#sheet-preview');
@@ -758,7 +757,6 @@ sheetRetry.addEventListener('click', () => retrySheet?.());
 sheetClear.addEventListener('click', () => {
   sheetFile.value = '';
   sheetText.value = '';
-  sheetTextOption.open = false;
   prepareSheet();
 });
 

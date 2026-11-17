@@ -79,6 +79,7 @@
     #question-sheet { margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
     #sheet-file { display: block; width: 100%; margin: 8px 0; font: inherit; }
     #sheet-paste, #sheet-text { display: block; width: 100%; min-height: 52px; margin: 6px 0 8px; padding: 9px; resize: vertical; border: 1px dashed var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; }
+    .sheet-image-options { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
     #sheet-preview { max-height: 18rem; overflow: auto; margin: 10px 0; }
     #listening-panel { padding: 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; }
     #clip-form fieldset { display: grid; gap: 10px; margin-bottom: 0; }
@@ -175,16 +176,16 @@
     </section>
     <fieldset id="question-sheet" hidden>
       <legend>Question sheet (optional)</legend>
-      <label for="sheet-file">Upload one IELTS Speaking test</label>
-      <input id="sheet-file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf">
-      <label for="sheet-paste">Or paste a screenshot</label>
-      <textarea id="sheet-paste" rows="1" placeholder="Click here, then press Ctrl+V" aria-describedby="sheet-status"></textarea>
-      <details id="sheet-text-option">
-        <summary>Paste question text</summary>
-        <label for="sheet-text">Use Part 1, Part 2 and Part 3 headings. Put each question or cue-card point on its own line.</label>
-        <textarea id="sheet-text" rows="8" maxlength="24000" spellcheck="false" placeholder="Part 1&#10;Your questions&#10;&#10;Part 2&#10;Describe …&#10;Cue-card points&#10;&#10;Part 3&#10;Your discussion questions"></textarea>
-        <button id="sheet-use-text" type="button">Use these questions</button>
-      </details>
+      <label for="sheet-text"><strong>Paste question text</strong></label>
+      <p id="sheet-text-help" class="privacy">Use Part 1, Part 2 and Part 3 headings. Put each question or cue-card point on its own line.</p>
+      <textarea id="sheet-text" rows="7" maxlength="24000" spellcheck="false" aria-describedby="sheet-text-help" placeholder="Part 1&#10;Your questions&#10;&#10;Part 2&#10;Describe …&#10;Cue-card points&#10;&#10;Part 3&#10;Your discussion questions"></textarea>
+      <button id="sheet-use-text" type="button">Use these questions</button>
+      <div class="sheet-image-options">
+        <label for="sheet-file">Or upload an image or PDF</label>
+        <input id="sheet-file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf">
+        <label for="sheet-paste">Paste a screenshot</label>
+        <textarea id="sheet-paste" rows="1" placeholder="Click here, then press Ctrl+V" aria-describedby="sheet-status"></textarea>
+      </div>
       <p id="sheet-status" class="privacy" role="status">Uses built-in questions until you add a sheet.</p>
       <details id="sheet-review" hidden>
         <summary>Check extracted questions</summary>
