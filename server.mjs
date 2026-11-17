@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { getFeedback, getLog, historyLimit, listLogs, playLog, recentPrompts, reviewAudio, saveFeedback, saveLog } from './history.mjs';
 import { generateFeedback } from './feedback.mjs';
 import { analyzeClip, clipLimit } from './listening.mjs';
+import { extractQuestionSheet, sheetLimit } from './question-sheet.mjs';
 
 const port = 8766;
 const origin = `http://127.0.0.1:${port}`;
@@ -55,6 +56,18 @@ async function route(req, res) {
     return send(res, 200, JSON.stringify({ app: 'alex', configured: { gemini: Boolean(keys.gemini), openai: Boolean(keys.openai) } }), 'application/json');
   }
   if (req.method === 'POST' && req.headers.origin !== origin) return send(res, 403, 'Use the Alex page to make changes.');
+  if (req.method === 'POST' && req.url === '/exam/question-sheet') {
+    if (!keys.gemini) return send(res, 409, 'Load your Gemini key in Voice setup to read a question sheet.');
+    if (Number(req.headers['content-length']) > sheetLimit) return send(res, 413, 'Choose a sheet under 10 MB.');
+    try {
+      const bytes = await readBody(req, sheetLimit);
+      const sheet = await extractQuestionSheet(bytes, req.headers['content-type'], keys.gemini);
+      return send(res, 200, JSON.stringify(sheet), 'application/json');
+    } catch (error) {
+      return send(res, error.status ?? 502, error.status === 413 ? 'Choose a sheet under 10 MB.'
+        : error.status ? error.message : 'Could not read the question sheet. Try again.');
+    }
+  }
   if (req.method === 'POST' && req.url === '/listening/analyze') {
     if (!keys.gemini) return send(res, 409, 'Load a Gemini key in Voice setup to analyze the clip.');
     if (Number(req.headers['content-length']) > clipLimit) return send(res, 413, 'Choose a clip under 12 MB.');

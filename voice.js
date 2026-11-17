@@ -20,6 +20,14 @@ const examPanel = document.querySelector('#exam-panel');
 const examStage = document.querySelector('#exam-stage');
 const cueCard = document.querySelector('#cue-card');
 const prepare = document.querySelector('#start-preparation');
+const sheetPanel = document.querySelector('#question-sheet');
+const sheetFile = document.querySelector('#sheet-file');
+const sheetStatus = document.querySelector('#sheet-status');
+const sheetReview = document.querySelector('#sheet-review');
+const sheetPreview = document.querySelector('#sheet-preview');
+const sheetClear = document.querySelector('#sheet-clear');
+let questionSheet;
+let sheetRequest;
 let activeCall;
 let pendingSave;
 let pendingNotice = '';
@@ -27,6 +35,7 @@ let configured = {};
 
 function canStart() {
   return configured[provider.value] && !pendingSave && navigator.mediaDevices?.getUserMedia &&
+    (modes.querySelector(':checked').value !== 'mock' || !sheetFile.files.length || questionSheet) &&
     (modes.querySelector(':checked').value !== 'listening' || preparedNotes()) &&
     window.MediaRecorder && window.AudioContext &&
     (provider.value === 'gemini' ? window.AudioWorkletNode : window.RTCPeerConnection);
@@ -58,15 +67,18 @@ function startClock(call) {
 function startExam(call, send) {
   let card;
   let topic;
-  try {
-    card = nextCard(window.localStorage);
-    topic = nextTopic(window.localStorage);
-  } catch {
-    card = nextCard();
+  if (!call.sheet) {
+    try {
+      card = nextCard(window.localStorage);
+      topic = nextTopic(window.localStorage);
+    } catch {
+      card = nextCard();
+    }
   }
   call.exam = createExam({
     card,
     topic,
+    sheet: call.sheet,
     send,
     finish: () => finish(call, 'IELTS mock complete.', true),
     setMicrophone(enabled) {
@@ -348,6 +360,7 @@ async function finish(call, message, allowTranscript = false) {
   start.hidden = false;
   modes.disabled = false;
   options.disabled = false;
+  sheetPanel.disabled = false;
   showListening(call.mode === 'listening');
   start.disabled = !canStart();
   status.textContent = message;
@@ -535,6 +548,7 @@ async function startCall(previousId) {
   if (activeCall || start.disabled) return;
   const mode = modes.querySelector(':checked').value;
   const call = { mode, limit: mode === 'mock' ? 0 : Number(limit.value) * 60, abort: new AbortController(), turns: [], currentTurns: {}, playing: new Set(), playbackEnd: 0, resumeAttempts: 0 };
+  if (mode === 'mock') call.sheet = questionSheet;
   if (mode === 'listening') {
     call.notes = preparedNotes();
     stopClip();
@@ -546,6 +560,7 @@ async function startCall(previousId) {
   end.hidden = false;
   modes.disabled = true;
   options.disabled = true;
+  sheetPanel.disabled = true;
   status.textContent = 'Allow microphone access to continue.';
 
   try {
@@ -621,11 +636,78 @@ start.addEventListener('continue-call', event => startCall(event.detail));
 modes.addEventListener('change', () => {
   const mode = modes.querySelector(':checked').value;
   limit.closest('label').hidden = mode === 'mock';
+  sheetPanel.hidden = mode !== 'mock';
   showListening(mode === 'listening');
   if (mode !== 'listening') stopClip();
   updateStart();
 });
 document.querySelector('#listening-panel').addEventListener('clip-change', updateStart);
+
+function resetSheet() {
+  sheetRequest?.abort();
+  questionSheet = undefined;
+  sheetReview.hidden = true;
+  sheetReview.open = false;
+  sheetPreview.replaceChildren();
+}
+
+sheetClear.addEventListener('click', () => {
+  sheetFile.value = '';
+  resetSheet();
+  sheetClear.hidden = true;
+  sheetStatus.textContent = 'Using built-in questions.';
+  updateStart();
+});
+
+sheetFile.addEventListener('change', async () => {
+  resetSheet();
+  updateStart();
+  const file = sheetFile.files[0];
+  sheetClear.hidden = !file;
+  if (!file) {
+    sheetStatus.textContent = 'Using built-in questions.';
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    sheetStatus.textContent = 'Choose a sheet under 10 MB.';
+    return;
+  }
+  const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
+  const type = types[file.name.split('.').at(-1).toLowerCase()];
+  if (!type) {
+    sheetStatus.textContent = 'Choose a PNG, JPEG, WebP or PDF.';
+    return;
+  }
+  const controller = new AbortController();
+  sheetRequest = controller;
+  sheetStatus.textContent = 'Reading question sheet…';
+  try {
+    const response = await fetch('/exam/question-sheet', {
+      method: 'POST', headers: { 'Content-Type': type }, body: file, signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const sheet = await response.json();
+    if (controller.signal.aborted) return;
+    questionSheet = sheet;
+    for (const [heading, entries] of [['Part 1', sheet.part1], ['Part 2 · ' + sheet.title, sheet.points], ['Part 3', sheet.part3]]) {
+      const title = document.createElement('h4');
+      title.textContent = heading;
+      const list = document.createElement('ol');
+      for (const entry of entries) {
+        const item = document.createElement('li');
+        item.textContent = entry;
+        list.append(item);
+      }
+      sheetPreview.append(title, list);
+    }
+    sheetReview.hidden = false;
+    sheetStatus.textContent = 'Sheet ready. Alex will use it in this mock.';
+  } catch (error) {
+    if (!controller.signal.aborted) sheetStatus.textContent = error.message || 'Could not read the sheet.';
+  } finally {
+    if (!controller.signal.aborted) updateStart();
+  }
+});
 
 function updateStart() {
   start.disabled = !canStart();

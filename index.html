@@ -76,6 +76,9 @@
     #cue-card { margin-top: 10px; }
     #cue-card ul { margin: 5px 0 0; padding-left: 21px; }
     #start-preparation { margin-top: 12px; }
+    #question-sheet { margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+    #sheet-file { display: block; width: 100%; margin: 8px 0; font: inherit; }
+    #sheet-preview { max-height: 18rem; overflow: auto; margin: 10px 0; }
     #listening-panel { padding: 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; }
     #clip-form fieldset { display: grid; gap: 10px; margin-bottom: 0; }
     #clip-form input { display: block; width: 100%; margin-top: 4px; font: inherit; }
@@ -169,6 +172,18 @@
       <p id="clip-status" class="privacy" role="status"></p>
       <p class="privacy">Up to 12 MB. Alex sends the audio to Gemini for analysis. The selected voice provider receives listening notes.</p>
     </section>
+    <fieldset id="question-sheet" hidden>
+      <legend>Question sheet (optional)</legend>
+      <label for="sheet-file">Upload one IELTS Speaking test</label>
+      <input id="sheet-file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf">
+      <p id="sheet-status" class="privacy" role="status">Uses built-in questions unless you upload a sheet.</p>
+      <details id="sheet-review" hidden>
+        <summary>Check extracted questions</summary>
+        <div id="sheet-preview"></div>
+      </details>
+      <button id="sheet-clear" type="button" hidden>Use built-in questions</button>
+      <p class="privacy">PNG, JPEG, WebP or PDF, up to 10 MB. Gemini reads the file. Alex keeps the prepared sheet in this tab.</p>
+    </fieldset>
     <button id="start" disabled>Start voice call</button>
     <section id="exam-panel" aria-label="IELTS test progress" hidden>
       <p id="exam-stage" role="status"></p>
